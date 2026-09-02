@@ -2,10 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "oasys-flow-static",
+      "name": "oasys-flow-legacy",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "5173"],
+      "runtimeArgs": ["-m", "http.server", "5173", "--directory", "legacy_UI"],
       "port": 5173
+    },
+    {
+      "name": "oasys-flow-react",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "Oasys_flowReact", "run", "dev"],
+      "port": 5174
     }
   ]
 }
