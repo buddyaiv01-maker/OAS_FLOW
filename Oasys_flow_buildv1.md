@@ -191,7 +191,66 @@ Add a `Table` node type (Zapier's Tables model — the simplest of the three and
 
 ---
 
-## 12. Phased roadmap
+## 12. Code execution & advanced data tools
+
+Every platform eventually hits things the mapping engine (§3) can't express — arbitrary logic, bulk math, regex, or a transform so specific it doesn't deserve a name in the ~15-function library from §3.3.2. All three competitors solve this with an escape hatch node.
+
+**Code node** — n8n's version is the right reference: a dedicated node type whose param is a real script, sandboxed (no filesystem, no network beyond what the workflow already grants via HTTP Request), with two run modes selectable per instance:
+- **Run Once for All Items** — the script receives the whole upstream item array and returns an array (bulk transforms, custom aggregation).
+- **Run Once for Each Item** — the script runs once per item and returns one item each time (n8n's default mental model for most users).
+
+n8n additionally supports Python for this node (server-side only — even their own Cloud offering restricts it to no third-party imports). For Oasys Flow, ship JS first (it can reuse the *item* plumbing from §2) and treat Python as a v2+ stretch goal once there's a real backend (§16) to run it in.
+
+**Formatter node** — Zapier's Formatter is effectively a stateless function library promoted to a first-class node (Text: split/replace/truncate/case; Numbers: round/currency/math; Date/Time: format/shift/diff; Utilities: lookup table, dedupe). The distinction from §3.3.2's inline transform chips: a Formatter node's *output* is itself mappable and branchable downstream, useful when a transform result needs to be reused by more than one later node, or inspected on its own in the execution log (§9). Ship it as a single `formatter` node type whose first param is an `operation` select, mirroring the existing operation-driven param pattern.
+
+**Real condition builder for Router/If** — today `ifelse`'s branches are label/hint pairs with no actual condition config. Add a per-branch condition group: repeatable rows of `{ field (mappable), operator, value (mappable) }` combined with AND/OR, matching Make's per-route filter and Zapier's Paths rule builder — rendered inside the existing node-modal params slot, no new UI chrome needed.
+
+---
+
+## 13. Forms & human-in-the-loop
+
+**Form Trigger** — a new trigger node type, visually and structurally a sibling of the existing `chatInterface` node (same "trigger card, single output" shape) but its param is a field list (short text / long text / number / select / checkbox / file) instead of one question. Reuses the Webhook node's Test-URL-vs-Production-URL split (§5.1) so a form can be safely iterated on before going live. For multi-page forms, chain a second, non-trigger `form` node mid-workflow — submitting page 1 resumes the run into page 2, matching n8n's Form Trigger + Form node pairing exactly.
+
+**Wait node** — pauses a run and resumes on one of three conditions: a fixed duration, an external webhook call, or a form submission. This single primitive is what makes approvals possible without inventing a bespoke "approval" runtime concept.
+
+**Request Approval pattern** — rather than a new primitive, spec this as a pre-configured convenience: dropping a "Request Approval" node onto the canvas auto-wires a `Wait` (form-resume mode) with two pre-built buttons (Approve/Decline) and a reviewer-notification param, mirroring how Zapier's own Human in the Loop feature (Request Approval / Collect Data / Notify) presents three simple choices to the end user even though it's built on more general primitives underneath.
+
+---
+
+## 14. Organization & governance
+
+- **Folders + tags on the Dashboard**: tags are flat, global labels (filter chips above the workflow-card grid, exactly like the existing status pills); folders are a real nested tree for ownership/project grouping, shown as a collapsible sidebar tree next to the card grid. Ship both — they solve different problems (n8n ships both, after years of folder requests from tag-only users).
+- **Global search**: one topbar search box across workflow names, node labels/types, and mapped-field text — becomes necessary the moment a user has more than ~15 workflows.
+- **Workflow version history**: every meaningful save appends to a per-workflow history list instead of overwriting state. This is almost free — `snapshotCanvas()` (already built for undo/redo, §9) already serializes full canvas state; history just means *keeping* N of those snapshots with a timestamp instead of discarding them, surfaced via a clock icon in the topbar with a restore/clone/compare list, matching n8n's Workflow History panel and Make's Version History view.
+- **Draft vs. Active**: formalize what the JSON schema's existing `workflow.status` field means — Draft workflows never fire automatically (manual test-run only); Active workflows have live triggers/schedules. Same on/off idea as n8n's Active toggle and Make's scenario switch, just given real semantics instead of being decorative.
+- **Global Variables store**: a small new "Variables" nav view holding name → value pairs available to every workflow as a new pseudo-source in the field-picker (`{{$vars.API_BASE_URL}}`, listed alongside upstream nodes), for shared *non-secret* config, distinct from per-node credentials (§7). Modeled on Make's Custom Variables / Data Store Keys.
+
+---
+
+## 15. Collaboration & multi-user
+
+- **Projects**: a project groups workflows + credentials + folders, and a user's role is scoped *per project* — the same person can be an Admin on one project and a Viewer on another. Recommend this over a flatter Make-style single "Team" because it composes cleanly with the per-node-instance credential scoping already built this session (a credential's owner becomes the project, not the individual user).
+- **Roles**: four tiers is enough — Owner (instance-level), Admin (manage project members + credentials), Editor (build + run), Viewer (inspect workflows and execution logs, read-only).
+- **Shared credentials, made visible**: extends §7's "owner + shared-with" note into an actual UI affordance — the existing credential picker (`credNodeSelect`) gains a small lock/people icon showing private vs. project-shared.
+- **Sticky Note canvas element**: a text-only annotation block for team notes, cheap to add since it reuses the existing node-card rendering path with zero ports/connections — n8n ships literally this (a "Sticky Note" node with no inputs or outputs).
+- **Activity/audit log**: a flat "who changed what, when" timeline per workflow, fed by the same save-events as the version history in §14 — just presented as a log instead of restorable snapshots.
+
+---
+
+## 16. Real backend runtime & operations
+
+Everything up to this point — including everything already built — runs entirely in the browser. That's the right call for a fast, good-looking demo, but it's also the one gap that separates "looks like n8n" from "is a clone of n8n": nothing runs unless a tab is open. Closing that gap is its own, much larger project; this section specs the shape of it so the rest of the app (which doesn't need to change) has somewhere real to plug into eventually.
+
+- **A real execution engine**: a server-side process that walks the graph in topological order (respecting router branches and loops), calling each node type's `execute()` function (already an optional, additive field in §4's schema) and persisting per-run, per-node input/output — this is what finally makes the Execute button, Execution log, and pin data from §9 real instead of mocked.
+- **Scale architecture**: n8n's **queue mode** is the right reference point — a main process owns the UI, webhooks, and scheduling and writes jobs to a Redis-backed queue; one or more worker processes pull jobs and execute them, with Postgres holding shared state. Not needed on day one (a single process is fine for one user), but the execution engine above should be written so a single-process "main does everything" mode and a queue-mode split are the same code path with a config flag, not two implementations.
+- **Webhook security**: HMAC signature verification against a per-credential secret, an optional IP allowlist, and a dedicated **Respond to Webhook** node so a webhook-triggered run can return a custom status/body instead of a generic 200 — plus the Test-URL/Production-URL split (§13) applied to the plain `webhook` node type, not just Forms.
+- **Concurrency limits**: cap how many runs of the same workflow can execute in parallel, so a runaway loop or a webhook flood can't fork the process into oblivion — matches n8n's per-instance execution-concurrency setting.
+- **Real Executions/ops dashboard**: the Dashboard view's workflow cards currently show static numbers — once runs are real, back them with actual counts (runs, success/error rate, last-run timestamp).
+- **Account-level failure notifications**: distinct from a user building their own "on error, notify Slack" workflow (§6) — a single account setting ("email me if any workflow fails") that works even for workflows nobody bothered to add error handling to, matching n8n Cloud's default failure emails and Make's account-level scenario-error alerts.
+
+---
+
+## 17. Phased roadmap
 
 **Phase 1 — Mapping engine (highest leverage, do first)**
 Stable node-ID-based tokens (§3.4) → real expression evaluator behind `{{ }}` (§3.3.1) → inline transform functions tab (§3.3.2).
@@ -208,10 +267,27 @@ Loops (§5.3) → Sub-workflows (§5.4) → Table node (§10).
 **Phase 5 — Ecosystem**
 Node definition schema finalized for third parties (§4) → Template gallery (§11) → shared credentials (§7).
 
+**Phase 6 — Code & advanced data tools**
+Code node, sandboxed JS with run-once-for-all vs. run-once-per-item (§12) → Formatter node (§12) → real multi-condition builder for Router/If branches (§12).
+
+**Phase 7 — Forms & human-in-the-loop**
+Form Trigger + chained Form node for multi-step forms (§13) → Wait node — time / webhook / form-resume (§13) → Request Approval convenience pattern (§13).
+
+**Phase 8 — Organization & governance**
+Folders + tags on the Dashboard (§14) → global search (§14) → workflow version history + restore (§14) → Draft/Active formalized (§14) → global Variables store (§14).
+
+**Phase 9 — Collaboration & multi-user**
+Projects with per-project roles (§15) → shared-credential indicator (§15) → Sticky Note canvas element (§15) → activity/audit log (§15).
+
+**Phase 10 — Real backend & operations**
+Server-side execution engine (§16) → queue-mode-style scale architecture (§16) → webhook security + Respond to Webhook node (§16) → concurrency limits (§16) → real Executions/ops dashboard (§16) → account-level failure notifications (§16).
+
+*Phases 1–5 make the existing canvas fully real. Phases 6–10 are what take it from "a very good demo of a workflow builder" to full feature parity with n8n and Make.com — a code escape hatch, forms/approvals, org-scale governance, multi-user collaboration, and a backend that runs workflows whether or not anyone has a tab open.*
+
 ---
 
 ## Sources
 
-- n8n: [Expression reference](https://docs.n8n.io/build/work-with-data/transform-data/expression-reference) · [Use the UI mapper](https://docs.n8n.io/build/work-with-data/reference-data/use-the-ui-mapper) · [How n8n structures data](https://docs.n8n.io/data/data-structure/) · [Item linking](https://docs.n8n.io/data/data-mapping/data-item-linking/) · [Error handling](https://docs.n8n.io/flow-logic/error-handling/) · [Credentials](https://n8n.school/blog/n8n-credentials-explained) · [Execute Sub-workflow](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.executeworkflow) · [AI Agent](https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.agent) · [Triggers guide](https://growwstacks.com/blog/complete-guide-to-n8n-triggers) · [Loop Over Items](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.splitinbatches) · [Templates](https://docs.n8n.io/workflows/templates/)
-- Make.com: [Mapping](https://help.make.com/mapping) · [Mapping arrays](https://help.make.com/mapping-arrays) · [Data mapping explained](https://growwstacks.com/blog/make-com-data-mapping-explained) · [Bundles/arrays/collections](https://www.theaiautomators.com/understanding-bundles-arrays-and-collections-in-makecom/) · [Router module](https://consultevo.com/make-com-router-module-guide/) · [Array Aggregator](https://consultevo.com/make-com-array-aggregator-guide/) · [Error handling & directives](https://use-apify.com/blog/make-com-error-handling-guide) · [Break directive](https://consultevo.com/make-com-break-error-handler-guide/) · [Scenario history](https://growwstacks.com/blog/how-to-use-make-com-scenario-history) · [Incomplete executions](https://help.make.com/manage-incomplete-executions)
-- Zapier: [Send data between steps by mapping fields](https://help.zapier.com/hc/en-us/articles/8496343026701-Send-data-between-steps-by-mapping-fields) · [Enter data in Zap fields](https://help.zapier.com/hc/en-us/articles/31709122224653-Enter-data-in-Zap-fields) · [Paths](https://help.zapier.com/hc/en-us/articles/8496288555917-Add-branching-logic-to-Zap-workflows-with-Paths) · [Zapier Tables](https://help.zapier.com/hc/en-us/articles/9804340895245-Create-tables-and-store-data-with-Zapier-Tables) · [Code by Zapier](https://help.zapier.com/hc/en-us/articles/8496310939021-Use-JavaScript-code-in-Zap-workflows) · [Formatter](https://zapier.com/blog/updates/593/introducing-formatter-by-zapier)
+- n8n: [Expression reference](https://docs.n8n.io/build/work-with-data/transform-data/expression-reference) · [Use the UI mapper](https://docs.n8n.io/build/work-with-data/reference-data/use-the-ui-mapper) · [How n8n structures data](https://docs.n8n.io/data/data-structure/) · [Item linking](https://docs.n8n.io/data/data-mapping/data-item-linking/) · [Error handling](https://docs.n8n.io/flow-logic/error-handling/) · [Credentials](https://n8n.school/blog/n8n-credentials-explained) · [Execute Sub-workflow](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.executeworkflow) · [AI Agent](https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.agent) · [Triggers guide](https://growwstacks.com/blog/complete-guide-to-n8n-triggers) · [Loop Over Items](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.splitinbatches) · [Templates](https://docs.n8n.io/workflows/templates/) · [Code node](https://docs.n8n.io/code/code-node/) · [Form Trigger](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.formtrigger) · [Workflow history](https://docs.n8n.io/workflows/history/) · [Organize work in projects](https://docs.n8n.io/administer/manage-users-and-access/set-permissions-and-roles-rbac/organize-work-in-projects) · [Tag workflows](https://docs.n8n.io/build/manage-workflows/tag-workflows) · [Configuring queue mode](https://docs.n8n.io/hosting/scaling/queue-mode/)
+- Make.com: [Mapping](https://help.make.com/mapping) · [Mapping arrays](https://help.make.com/mapping-arrays) · [Data mapping explained](https://growwstacks.com/blog/make-com-data-mapping-explained) · [Bundles/arrays/collections](https://www.theaiautomators.com/understanding-bundles-arrays-and-collections-in-makecom/) · [Router module](https://consultevo.com/make-com-router-module-guide/) · [Array Aggregator](https://consultevo.com/make-com-array-aggregator-guide/) · [Error handling & directives](https://use-apify.com/blog/make-com-error-handling-guide) · [Break directive](https://consultevo.com/make-com-break-error-handler-guide/) · [Scenario history](https://growwstacks.com/blog/how-to-use-make-com-scenario-history) · [Incomplete executions](https://help.make.com/manage-incomplete-executions) · [Custom variables](https://help.make.com/custom-variables) · [Data Stores API](https://developers.make.com/api-documentation/api-reference/data-stores) · [Restore a previous scenario version](https://help.make.com/restore-a-previous-scenario-version)
+- Zapier: [Send data between steps by mapping fields](https://help.zapier.com/hc/en-us/articles/8496343026701-Send-data-between-steps-by-mapping-fields) · [Enter data in Zap fields](https://help.zapier.com/hc/en-us/articles/31709122224653-Enter-data-in-Zap-fields) · [Paths](https://help.zapier.com/hc/en-us/articles/8496288555917-Add-branching-logic-to-Zap-workflows-with-Paths) · [Zapier Tables](https://help.zapier.com/hc/en-us/articles/9804340895245-Create-tables-and-store-data-with-Zapier-Tables) · [Code by Zapier](https://help.zapier.com/hc/en-us/articles/8496310939021-Use-JavaScript-code-in-Zap-workflows) · [Formatter](https://zapier.com/blog/updates/593/introducing-formatter-by-zapier) · [Human in the Loop](https://help.zapier.com/hc/en-us/sections/38731226552845-Human-in-the-Loop) · [Request approval](https://help.zapier.com/hc/en-us/articles/38731463206029-Request-approval-to-keep-your-workflow-running-with-Human-in-the-Loop)
