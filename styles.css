@@ -11,6 +11,8 @@
   --blue-soft: #6d93e8;
   --purple: #57177D;
   --purple-soft: #8b46ba;
+  --danger: #E5484D;
+  --danger-soft: #ff6369;
 
   --bg-0: #0a0b10;
   --bg-1: #101219;
@@ -57,6 +59,7 @@
   --orange-soft: #c96f00;
   --blue-soft: #3660B7;
   --purple-soft: #57177D;
+  --danger-soft: #d93a3f;
 
   --shadow-lift: 0 16px 40px -18px rgba(30,20,10,0.18);
   --grain-opacity: 0.02;
@@ -608,6 +611,7 @@ body::before {
 .badge-chat     { background: rgba(54,96,183,0.18); color: var(--blue-soft); }
 .badge-output   { background: rgba(100,116,139,0.20); color: #a3adba; }
 .badge-printer  { background: rgba(46,139,146,0.18); color: #5fc7cf; }
+.badge-errortrigger { background: rgba(229,72,77,0.16); color: var(--danger-soft); }
 
 /* Brand nodes: solid brand color + real logo mark in white, like the reference (Gmail = solid red circle, white glyph) */
 .badge-slack      { background: #4A154B; color: #ffffff; }
@@ -692,6 +696,7 @@ body::before {
 }
 .node-connector-stub svg { width: 11px; height: 11px; }
 .node-connector-stub:hover { opacity: 1; transform: scale(1.12); }
+.node-connector-stub.is-error { box-shadow: 0 0 0 3px rgba(229,72,77,0.22); }
 .node-connector-ghost {
   margin-left: -11px;
   opacity: 1;
@@ -735,6 +740,8 @@ body::before {
 .node-branch-label .branch-sep { color: var(--text-low); }
 .node-branch-label .branch-hint { color: var(--text-mid); }
 .node-branch-label .branch-else { color: #4CAF50; font-weight: 600; }
+.node-branch-label.is-error { border-color: rgba(229,72,77,0.35); }
+.node-branch-label .branch-else.is-error { color: var(--danger-soft); }
 
 /* Edge context menu */
 .edge-menu {
@@ -1380,6 +1387,14 @@ body::before {
   text-overflow: ellipsis;
 }
 .param-preview span { color: var(--text-mid); }
+
+.settings-hint {
+  margin: -6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--danger-soft);
+}
+.settings-hint.is-hidden { display: none; }
 
 .field-picker-functions {
   display: flex;

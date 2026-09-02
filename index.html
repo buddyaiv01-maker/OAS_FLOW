@@ -425,12 +425,29 @@
       </div>
 
       <div class="node-modal-panel is-hidden" id="mpanelSettings">
-        <label class="field checkbox-field"><input type="checkbox" checked /><span>Continue on fail</span></label>
-        <label class="field checkbox-field"><input type="checkbox" /><span>Always output data</span></label>
-        <label class="field">
+        <label class="field checkbox-field">
+          <input type="checkbox" id="settingsRetryOnFail" />
           <span>Retry on Fail</span>
-          <select><option>Never</option><option>Once</option><option>3 times</option></select>
         </label>
+        <div class="field-row" id="settingsRetryFields">
+          <label class="field">
+            <span>Max Tries</span>
+            <input type="number" id="settingsMaxTries" min="1" max="10" value="3" />
+          </label>
+          <label class="field">
+            <span>Wait Between Tries (sec)</span>
+            <input type="number" id="settingsWaitBetween" min="0" max="300" value="1" />
+          </label>
+        </div>
+        <label class="field">
+          <span>On Error</span>
+          <select id="settingsOnError">
+            <option value="stop">Stop workflow</option>
+            <option value="skip">Continue (skip this node)</option>
+            <option value="continueError">Continue (use error output)</option>
+          </select>
+        </label>
+        <p class="settings-hint" id="settingsErrorHint">Adds a second, red "Error" output on this node — wire it to a fallback path for when this step fails.</p>
       </div>
 
       <div class="node-modal-panel is-hidden" id="mpanelNotes">

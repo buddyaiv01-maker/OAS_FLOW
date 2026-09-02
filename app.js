@@ -257,6 +257,14 @@
         { key: "sampleQuestion", label: "Sample Question", type: "textarea", placeholder: "Type an example question to use when testing this workflow…" },
       ],
       outputFields: [{ key: "question", label: "Question" }] },
+    errorTrigger: { badge: "badge-errortrigger", label: "Error Trigger", cat: "trigger", color: "#E5484D",
+      icon: '<path d="M12 9v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="16.2" r="1" fill="currentColor"/><path d="M10.6 3.7 2.9 17.3a1.8 1.8 0 0 0 1.56 2.7h15.08a1.8 1.8 0 0 0 1.56-2.7L13.4 3.7a1.8 1.8 0 0 0-2.8 0Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
+      outputFields: [
+        { key: "errorMessage", label: "Error Message" },
+        { key: "nodeName", label: "Failed Node" },
+        { key: "workflowName", label: "Workflow Name" },
+        { key: "timestamp", label: "Failed At" },
+      ] },
     output:   { badge: "badge-output",   label: "Output",        cat: "logic", color: "#64748B",
       icon: '<path d="M13 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 12h12M11 8l4 4-4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
       params: [
@@ -339,6 +347,18 @@
     return (meta && meta.color) || "#F79106";
   }
 
+  // A node's output branches are its type's static branches (Router/If-Else) plus, per instance,
+  // a synthetic red "Error" branch when Settings > On Error is set to "use error output" (§6).
+  function getNodeBranches(id) {
+    const data = nodeData[id];
+    const meta = data && nodeTypeLibrary[data.type];
+    const branches = (meta && meta.branches) ? meta.branches.slice() : [];
+    if (data && data.settings && data.settings.onError === "continueError") {
+      branches.push({ key: "__error__", label: "Error", hint: "", isError: true });
+    }
+    return branches;
+  }
+
   function nodeAnchor(id, side, branchKey) {
     const el = document.getElementById(id);
     const x = parseFloat(el.dataset.x);
@@ -346,11 +366,10 @@
     const w = el.offsetWidth || 196;
     const h = el.offsetHeight || 58;
     if (side === "left") return { x, y: y + h / 2 };
-    const data = nodeData[id];
-    const meta = data && nodeTypeLibrary[data.type];
-    if (meta && meta.branches && meta.branches.length) {
-      const n = meta.branches.length;
-      const idx = branchKey ? meta.branches.findIndex(b => b.key === branchKey) : 0;
+    const branches = getNodeBranches(id);
+    if (branches.length) {
+      const n = branches.length;
+      const idx = branchKey ? branches.findIndex(b => b.key === branchKey) : 0;
       const offset = (Math.max(idx, 0) - (n - 1) / 2) * 34;
       return { x: x + w, y: y + h / 2 + offset };
     }
@@ -428,12 +447,12 @@
   }
 
   /* ---------- Connector points: left "receiver" dot (input) + right "+" stub(s) (output, loose ends only) ---------- */
-  function makeConnectorStub(anchor, id, branchKey, title) {
+  function makeConnectorStub(anchor, id, branchKey, title, isError) {
     const stub = document.createElement("button");
-    stub.className = "node-connector-stub";
+    stub.className = "node-connector-stub" + (isError ? " is-error" : "");
     stub.style.left = anchor.x + "px";
     stub.style.top = anchor.y + "px";
-    stub.style.background = nodeColor(id);
+    stub.style.background = isError ? "var(--danger)" : nodeColor(id);
     stub.title = title;
     stub.innerHTML = '<svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="white" stroke-width="2.6" stroke-linecap="round"/></svg>';
     stub.addEventListener("mousedown", (e) => {
@@ -464,20 +483,21 @@
       receiver.title = "Input";
       canvasInner.appendChild(receiver);
 
-      if (meta.branches && meta.branches.length) {
-        meta.branches.forEach(branch => {
+      const branches = getNodeBranches(id);
+      if (branches.length) {
+        branches.forEach(branch => {
           const anchor = nodeAnchor(id, "right", branch.key);
           const chip = document.createElement("div");
-          chip.className = "node-branch-label";
+          chip.className = "node-branch-label" + (branch.isError ? " is-error" : "");
           chip.style.left = (anchor.x + 16) + "px";
           chip.style.top = anchor.y + "px";
           chip.innerHTML = branch.hint
             ? `<span class="branch-num">${branch.label}</span><span class="branch-sep">|</span><span class="branch-hint">${branch.hint}</span>`
-            : `<span class="branch-else">${branch.label}</span>`;
+            : `<span class="branch-else${branch.isError ? " is-error" : ""}">${branch.label}</span>`;
           canvasInner.appendChild(chip);
 
           if (edgeList.some(e => e.from === id && e.branch === branch.key)) return;
-          makeConnectorStub(anchor, id, branch.key, `Drag to connect "${branch.label}"`);
+          makeConnectorStub(anchor, id, branch.key, `Drag to connect "${branch.label}"`, branch.isError);
         });
         return;
       }
@@ -734,7 +754,8 @@
     canvasInner.appendChild(el);
     const params = {};
     (meta.params || []).forEach(p => { params[p.key] = { value: p.default || "", mapped: false }; });
-    nodeData[id] = { id, type, name: meta.label, sub, desc, x, y, params, credentialId: opts.credentialId || null };
+    const settings = opts.settings || defaultNodeSettings();
+    nodeData[id] = { id, type, name: meta.label, sub, desc, x, y, params, credentialId: opts.credentialId || null, settings };
     wireNode(el);
     showEmptyState(false);
     refreshNodeCheckmarks(type);
@@ -1128,6 +1149,10 @@
     response: "Sure — here's a summary of what I found…",
     rows: "3 rows returned",
     output: "The agent completed the requested task.",
+    errorMessage: "Request timed out after 30s",
+    nodeName: "HTTP Request",
+    workflowName: "Lead Capture Pipeline",
+    timestamp: "2026-09-02T14:32:00Z",
   };
   function sampleValueFor(fieldKey, fieldLabel) {
     return SAMPLE_FIELD_VALUES[fieldKey] || `Sample ${fieldLabel || fieldKey}`;
@@ -1383,6 +1408,55 @@
   }
   credNodeSelect.addEventListener("change", renderCredentialsView);
 
+  /* ---------- Node Settings tab — per-node Retry on Fail + On Error (§6) ---------- */
+  function defaultNodeSettings() {
+    return { retryOnFail: false, maxTries: 3, waitBetween: 1, onError: "stop" };
+  }
+
+  const settingsRetryOnFail = $("#settingsRetryOnFail");
+  const settingsRetryFields = $("#settingsRetryFields");
+  const settingsMaxTries = $("#settingsMaxTries");
+  const settingsWaitBetween = $("#settingsWaitBetween");
+  const settingsOnError = $("#settingsOnError");
+  const settingsErrorHint = $("#settingsErrorHint");
+
+  function renderNodeSettings(id) {
+    const data = nodeData[id];
+    if (!data) return;
+    if (!data.settings) data.settings = defaultNodeSettings();
+    const s = data.settings;
+    settingsRetryOnFail.checked = !!s.retryOnFail;
+    settingsRetryFields.classList.toggle("is-hidden", !s.retryOnFail);
+    settingsMaxTries.value = s.maxTries;
+    settingsWaitBetween.value = s.waitBetween;
+    settingsOnError.value = s.onError;
+    settingsErrorHint.classList.toggle("is-hidden", s.onError !== "continueError");
+  }
+
+  function onSettingsChange(e) {
+    const data = nodeData[selectedNodeId];
+    if (!data) return;
+    if (!data.settings) data.settings = defaultNodeSettings();
+    const s = data.settings;
+    if (e.target === settingsRetryOnFail) {
+      s.retryOnFail = settingsRetryOnFail.checked;
+      settingsRetryFields.classList.toggle("is-hidden", !s.retryOnFail);
+    } else if (e.target === settingsMaxTries) {
+      s.maxTries = Math.max(1, parseInt(settingsMaxTries.value, 10) || 1);
+    } else if (e.target === settingsWaitBetween) {
+      s.waitBetween = Math.max(0, parseInt(settingsWaitBetween.value, 10) || 0);
+    } else if (e.target === settingsOnError) {
+      s.onError = settingsOnError.value;
+      settingsErrorHint.classList.toggle("is-hidden", s.onError !== "continueError");
+      redrawEdges(); // rebuilds connector stubs so the red Error output appears/disappears live
+    } else {
+      return;
+    }
+    schedulePersist();
+  }
+  $("#mpanelSettings").addEventListener("input", onSettingsChange);
+  $("#mpanelSettings").addEventListener("change", onSettingsChange);
+
   function openNodeModal(id) {
     const data = nodeData[id];
     if (!data) return;
@@ -1395,6 +1469,7 @@
     modalDesc.value = data.desc;
     renderConnectionBlock(data.type, meta, modalConnectionSlot, id);
     renderNodeParams(id, meta);
+    renderNodeSettings(id);
     $("#modalWebhookUrlField").classList.toggle("is-hidden", data.type !== "webhook");
     $("#modalHttpRow").classList.toggle("is-hidden", data.type !== "webhook");
     $$(".node-modal-tab").forEach(t => t.classList.toggle("is-active", t.dataset.mtab === "params"));
@@ -1494,7 +1569,7 @@
       nodes: $$(".node", canvasInner).map(el => {
         const d = nodeData[el.id];
         if (!d) return null;
-        return { id: d.id, type: d.type, x: d.x, y: d.y, sub: d.sub, desc: d.desc, params: d.params, credentialId: d.credentialId || null };
+        return { id: d.id, type: d.type, x: d.x, y: d.y, sub: d.sub, desc: d.desc, params: d.params, credentialId: d.credentialId || null, settings: d.settings || null };
       }).filter(Boolean),
       edges: edgeList.map(e => [e.from, e.to, e.branch || null]),
     };
@@ -1506,7 +1581,7 @@
     const data = workflowCanvasData[id];
     if (!data) return; // blank workflow — clearCanvas() already shows the empty state
     data.nodes.forEach(n => {
-      createNode(n.type, n.x, n.y, { id: n.id, sub: n.sub, desc: n.desc, credentialId: n.credentialId });
+      createNode(n.type, n.x, n.y, { id: n.id, sub: n.sub, desc: n.desc, credentialId: n.credentialId, settings: n.settings });
       if (n.params && nodeData[n.id]) nodeData[n.id].params = n.params;
     });
     data.edges.forEach(([from, to, branch]) => createEdgePath(from, to, branch));
@@ -1563,6 +1638,7 @@
         position: { x: d.x, y: d.y },
         params: d.params,
         credentialId: d.credentialId || null,
+        settings: d.settings || null,
       };
     }).filter(Boolean);
     const connections = edgeList.map(e => ({ from: e.from, to: e.to, branch: e.branch || null }));
@@ -1620,7 +1696,7 @@
     payload.nodes.forEach(n => {
       if (!nodeTypeLibrary[n.type]) return; // unknown node type — skip rather than crash
       createNode(n.type, n.position ? n.position.x : 60, n.position ? n.position.y : 60, {
-        id: n.id, sub: n.instanceName, desc: n.description, credentialId: n.credentialId || null,
+        id: n.id, sub: n.instanceName, desc: n.description, credentialId: n.credentialId || null, settings: n.settings || null,
       });
       if (n.params && nodeData[n.id]) nodeData[n.id].params = n.params;
     });
