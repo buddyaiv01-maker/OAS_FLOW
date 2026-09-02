@@ -68,13 +68,13 @@ function ParamField({ node, param, upstream, updateNodeParam, setParamMapped, on
   );
 }
 
-// Port target for legacy_UI/app.js's #nodeModalOverlay, now with real field mapping (§3): the Map
-// toggle, field picker (grouped by upstream node, ƒ transform chips), and a live evaluated preview.
-// Settings/Notes tabs are still inert placeholders (Phase 2 scope).
+// Port target for legacy_UI/app.js's #nodeModalOverlay: real field mapping (§3 — Map toggle,
+// field picker, live preview) plus Settings (§6 — Retry on Fail / On Error, including the
+// "use error output" option that adds a red branch stub on the node card). Notes tab is inert.
 export default function NodeModal() {
   const {
     nodesById, selectedNodeId, setSelectedNodeId, renameNode, updateNodeDesc,
-    updateNodeParam, setParamMapped, deleteNode, getUpstreamOutputFields,
+    updateNodeParam, setParamMapped, updateNodeSettings, deleteNode, getUpstreamOutputFields,
   } = useWorkflow();
   const [tab, setTab] = useState("params");
   const [picker, setPicker] = useState(null); // { key, style }
@@ -85,6 +85,9 @@ export default function NodeModal() {
   if (!meta) return null;
 
   const upstream = getUpstreamOutputFields(node.id);
+  // Defensive default for nodes persisted before Settings existed (Phase 2) — updateNodeSettings
+  // itself is safe against a missing node.settings (spreading undefined in an object is a no-op).
+  const settings = node.settings || { retryOnFail: false, maxTries: 3, waitBetween: 1, onError: "stop" };
 
   function close() {
     setTab("params");
@@ -177,7 +180,48 @@ export default function NodeModal() {
           )}
           {tab === "settings" && (
             <div className="node-modal-panel">
-              <p className="addnode-popup-empty">Retry/On-Error settings — not ported yet.</p>
+              <label className="field checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={!!settings.retryOnFail}
+                  onChange={(e) => updateNodeSettings(node.id, { retryOnFail: e.target.checked })}
+                />
+                <span>Retry on Fail</span>
+              </label>
+              {settings.retryOnFail && (
+                <div className="field-row">
+                  <label className="field">
+                    <span>Max Tries</span>
+                    <input
+                      type="number" min={1} max={10}
+                      value={settings.maxTries}
+                      onChange={(e) => updateNodeSettings(node.id, { maxTries: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Wait Between Tries (sec)</span>
+                    <input
+                      type="number" min={0} max={300}
+                      value={settings.waitBetween}
+                      onChange={(e) => updateNodeSettings(node.id, { waitBetween: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                    />
+                  </label>
+                </div>
+              )}
+              <label className="field">
+                <span>On Error</span>
+                <select
+                  value={settings.onError}
+                  onChange={(e) => updateNodeSettings(node.id, { onError: e.target.value })}
+                >
+                  <option value="stop">Stop workflow</option>
+                  <option value="skip">Continue (skip this node)</option>
+                  <option value="continueError">Continue (use error output)</option>
+                </select>
+              </label>
+              {settings.onError === "continueError" && (
+                <p className="settings-hint">Adds a second, red "Error" output on this node — wire it to a fallback path for when this step fails.</p>
+              )}
             </div>
           )}
           {tab === "notes" && (

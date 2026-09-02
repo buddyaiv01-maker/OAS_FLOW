@@ -9,7 +9,7 @@ export default function ExecutionsView() {
           <p>Every run of every workflow, most recent first.</p>
         </div>
       </div>
-      <div className="dashboard-grid" />
+      <p className="addnode-popup-empty">No runs yet — the execution engine isn't wired up in the React app yet (in progress).</p>
     </div>
   );
 }

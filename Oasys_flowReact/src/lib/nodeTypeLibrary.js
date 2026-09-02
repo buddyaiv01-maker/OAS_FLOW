@@ -174,3 +174,20 @@ export const nodeTypeLibrary = {
 };
 
 export const NODE_CATEGORIES = ["trigger", "logic", "integrations", "ai"];
+
+// A node's output branches are its type's static branches (Router/If-Else) plus, per instance, a
+// synthetic red "Error" branch when Settings > On Error is "use error output" (§6 of the build doc).
+// A plain node (no static branches) that gains an error branch must NOT lose its normal output in
+// the process — it needs a synthesized default branch (key: null) alongside the error one, or the
+// success path becomes impossible to wire.
+export function getNodeBranches(node) {
+  const meta = nodeTypeLibrary[node.type];
+  const hasErrorBranch = !!(node.settings && node.settings.onError === "continueError");
+  if (meta && meta.branches && meta.branches.length) {
+    const branches = meta.branches.slice();
+    if (hasErrorBranch) branches.push({ key: "__error__", label: "Error", isError: true });
+    return branches;
+  }
+  if (hasErrorBranch) return [{ key: null, label: null }, { key: "__error__", label: "Error", isError: true }];
+  return [];
+}

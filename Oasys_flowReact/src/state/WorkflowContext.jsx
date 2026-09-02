@@ -117,7 +117,8 @@ export function WorkflowProvider({ children }) {
     const id = "node-" + Date.now() + "-" + nodeCounter.current;
     const params = {};
     (meta.params || []).forEach((p) => { params[p.key] = { value: p.default || "", mapped: false }; });
-    const node = { id, type, x, y, sub: "Untitled", desc: `Configure this ${meta.label} node.`, params };
+    const settings = { retryOnFail: false, maxTries: 3, waitBetween: 1, onError: "stop" };
+    const node = { id, type, x, y, sub: "Untitled", desc: `Configure this ${meta.label} node.`, params, settings };
     setNodesById((prev) => ({ ...prev, [id]: node }));
     return id;
   }
@@ -164,6 +165,14 @@ export function WorkflowProvider({ children }) {
       const node = prev[id];
       if (!node || !node.params[key]) return prev;
       return { ...prev, [id]: { ...node, params: { ...node.params, [key]: { ...node.params[key], value } } } };
+    });
+  }
+
+  function updateNodeSettings(id, patch) {
+    setNodesById((prev) => {
+      const node = prev[id];
+      if (!node) return prev;
+      return { ...prev, [id]: { ...node, settings: { ...node.settings, ...patch } } };
     });
   }
 
@@ -220,12 +229,20 @@ export function WorkflowProvider({ children }) {
     setEdges((prev) => prev.filter((e) => !(e.from === from && e.to === to && (e.branch || null) === (branch || null))));
   }
 
+  // Node count for any workflow (not just the current one) — the current workflow's live
+  // nodesById is more up to date than its stale snapshot still sitting in workflowCanvasData.
+  function nodeCountFor(id) {
+    if (id === currentWorkflowId) return Object.keys(nodesById).length;
+    const stored = workflowCanvasData[id];
+    return stored ? stored.nodes.length : 0;
+  }
+
   const value = useMemo(() => ({
     workflows, currentWorkflowId, nodesById, edges, selectedNodeId,
     setSelectedNodeId, selectWorkflow, createWorkflow, deleteWorkflow, renameWorkflow,
-    addNode, moveNode, renameNode, updateNodeDesc, updateNodeParam, setParamMapped, deleteNode,
-    connectNodes, removeEdge, getUpstreamOutputFields,
-  }), [workflows, currentWorkflowId, nodesById, edges, selectedNodeId]);
+    addNode, moveNode, renameNode, updateNodeDesc, updateNodeParam, setParamMapped, updateNodeSettings, deleteNode,
+    connectNodes, removeEdge, getUpstreamOutputFields, nodeCountFor,
+  }), [workflows, currentWorkflowId, nodesById, edges, selectedNodeId, workflowCanvasData]);
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>;
 }

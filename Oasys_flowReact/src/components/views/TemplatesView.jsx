@@ -9,7 +9,7 @@ export default function TemplatesView() {
           <p>Starter workflows — clone one to get going in seconds.</p>
         </div>
       </div>
-      <div className="dashboard-grid" />
+      <p className="addnode-popup-empty">Template gallery isn't ported to React yet (in progress).</p>
     </div>
   );
 }

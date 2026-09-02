@@ -1,9 +1,12 @@
-import { nodeTypeLibrary } from "../../lib/nodeTypeLibrary.js";
-import { NODE_W, NODE_H } from "./NodeCard.jsx";
+import { nodeTypeLibrary, getNodeBranches } from "../../lib/nodeTypeLibrary.js";
+import { NODE_W, NODE_H, branchOffset } from "./NodeCard.jsx";
 
-function anchor(node, side) {
+function anchor(node, side, branchKey) {
   if (side === "left") return { x: node.x, y: node.y + NODE_H / 2 };
-  return { x: node.x + NODE_W, y: node.y + NODE_H / 2 };
+  const branches = getNodeBranches(node);
+  if (!branches.length) return { x: node.x + NODE_W, y: node.y + NODE_H / 2 };
+  const idx = branchKey ? branches.findIndex((b) => b.key === branchKey) : 0;
+  return { x: node.x + NODE_W, y: node.y + NODE_H / 2 + branchOffset(Math.max(idx, 0), branches.length) };
 }
 
 function pathBetween(a, b) {
@@ -23,7 +26,7 @@ export default function EdgeLayer({ nodesById, edges, tempLine }) {
           if (!from || !to) return null;
           const fromColor = (nodeTypeLibrary[from.type] || {}).color || "#F79106";
           const toColor = (nodeTypeLibrary[to.type] || {}).color || "#F79106";
-          const a = anchor(from, "right");
+          const a = anchor(from, "right", e.branch);
           const b = anchor(to, "left");
           return (
             <linearGradient key={e.from + "-" + e.to + "-" + (e.branch || "")} id={"edgegrad-" + e.from + "-" + e.to} gradientUnits="userSpaceOnUse" x1={a.x} y1={a.y} x2={b.x} y2={b.y}>
@@ -37,7 +40,7 @@ export default function EdgeLayer({ nodesById, edges, tempLine }) {
         const from = nodesById[e.from];
         const to = nodesById[e.to];
         if (!from || !to) return null;
-        const d = pathBetween(anchor(from, "right"), anchor(to, "left"));
+        const d = pathBetween(anchor(from, "right", e.branch), anchor(to, "left"));
         return <path key={e.from + "-" + e.to + "-" + (e.branch || "")} className="edge" d={d} stroke={`url(#edgegrad-${e.from}-${e.to})`} />;
       })}
       {tempLine && <path className="edge-temp" d={pathBetween(tempLine.from, tempLine.to)} stroke={tempLine.color} />}

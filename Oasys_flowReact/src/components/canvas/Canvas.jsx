@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useWorkflow } from "../../state/WorkflowContext.jsx";
-import { nodeTypeLibrary } from "../../lib/nodeTypeLibrary.js";
-import NodeCard, { NODE_W, NODE_H } from "./NodeCard.jsx";
+import { nodeTypeLibrary, getNodeBranches } from "../../lib/nodeTypeLibrary.js";
+import NodeCard, { NODE_W, NODE_H, branchOffset } from "./NodeCard.jsx";
 import EdgeLayer from "./EdgeLayer.jsx";
 
 // Faithful port of legacy_UI's <section class="canvas-wrap"> — now with real node rendering,
@@ -18,25 +18,32 @@ export default function Canvas() {
     return { x: clientX - rect.left, y: clientY - rect.top };
   }
 
-  function handleStartConnect(fromId) {
+  function handleStartConnect(fromId, branch) {
     function onMouseMove(ev) {
-      setConnecting({ from: fromId, ...toCanvasPoint(ev.clientX, ev.clientY) });
+      setConnecting({ from: fromId, branch, ...toCanvasPoint(ev.clientX, ev.clientY) });
     }
     function onMouseUp(ev) {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
       const target = document.elementFromPoint(ev.clientX, ev.clientY);
       const targetNodeEl = target && target.closest(".node");
-      if (targetNodeEl && targetNodeEl.id !== fromId) connectNodes(fromId, targetNodeEl.id, null);
+      if (targetNodeEl && targetNodeEl.id !== fromId) connectNodes(fromId, targetNodeEl.id, branch);
       setConnecting(null);
     }
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
   }
 
+  function fromAnchorY(node) {
+    const branches = getNodeBranches(node);
+    if (!branches.length) return node.y + NODE_H / 2;
+    const idx = connecting.branch ? branches.findIndex((b) => b.key === connecting.branch) : 0;
+    return node.y + NODE_H / 2 + branchOffset(Math.max(idx, 0), branches.length);
+  }
+
   const fromNode = connecting && nodesById[connecting.from];
   const tempLine = fromNode
-    ? { from: { x: fromNode.x + NODE_W, y: fromNode.y + NODE_H / 2 }, to: { x: connecting.x, y: connecting.y }, color: (nodeTypeLibrary[fromNode.type] || {}).color }
+    ? { from: { x: fromNode.x + NODE_W, y: fromAnchorY(fromNode) }, to: { x: connecting.x, y: connecting.y }, color: (nodeTypeLibrary[fromNode.type] || {}).color }
     : null;
 
   return (

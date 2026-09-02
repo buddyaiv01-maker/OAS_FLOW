@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useWorkflow } from "../../state/WorkflowContext.jsx";
 
 const NAV_ITEMS = [
@@ -10,10 +9,9 @@ const NAV_ITEMS = [
   { view: "settings", label: "Settings", icon: <><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" /><path d="M19.4 13.5a7.9 7.9 0 0 0 0-3l2-1.5-2-3.4-2.4.6a7.7 7.7 0 0 0-2.6-1.5L14 2h-4l-.4 2.7a7.7 7.7 0 0 0-2.6 1.5l-2.4-.6-2 3.4 2 1.5a7.9 7.9 0 0 0 0 3l-2 1.5 2 3.4 2.4-.6a7.7 7.7 0 0 0 2.6 1.5L10 22h4l.4-2.7a7.7 7.7 0 0 0 2.6-1.5l2.4.6 2-3.4-2-1.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></> },
 ];
 
-// Faithful port of legacy_UI/index.html's <aside class="sidebar">. View routing, the workflow
-// list, and theme toggle are still TODO — this establishes the shell and the nav's data shape.
-export default function Sidebar() {
-  const [activeView, setActiveView] = useState("workflows");
+// Faithful port of legacy_UI/index.html's <aside class="sidebar">, with real view routing and
+// theme toggling (lifted to App.jsx since both affect layout outside the sidebar too).
+export default function Sidebar({ activeView, onNavigate, theme, onToggleTheme }) {
   const { workflows, currentWorkflowId, selectWorkflow, createWorkflow, deleteWorkflow } = useWorkflow();
 
   return (
@@ -40,7 +38,7 @@ export default function Sidebar() {
             key={item.view}
             className={"nav-item" + (activeView === item.view ? " is-active" : "")}
             title={item.label}
-            onClick={() => setActiveView(item.view)}
+            onClick={() => onNavigate(item.view)}
           >
             <svg viewBox="0 0 24 24" fill="none">{item.icon}</svg>
             <span>{item.label}</span>
@@ -63,7 +61,7 @@ export default function Sidebar() {
             <li
               key={wf.id}
               className={"wf-item" + (wf.id === currentWorkflowId ? " is-active" : "")}
-              onClick={() => selectWorkflow(wf.id)}
+              onClick={() => { selectWorkflow(wf.id); onNavigate("workflows"); }}
             >
               <span className={"dot" + (wf.status === "active" ? " dot-live" : "")} />
               <span className="wf-item-name">{wf.name}</span>
@@ -85,7 +83,7 @@ export default function Sidebar() {
           <span className="user-name">Jason</span>
           <span className="user-plan">Pro Plan</span>
         </div>
-        <button className="theme-toggle" title="Toggle light / dark mode">
+        <button className="theme-toggle" title="Toggle light / dark mode" onClick={onToggleTheme}>
           <svg className="icon-sun" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.2" stroke="currentColor" strokeWidth="1.8" /><path d="M12 2.5v2.4M12 19.1v2.4M4.4 4.4l1.7 1.7M17.9 17.9l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.4 19.6l1.7-1.7M17.9 6.1l1.7-1.7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           <svg className="icon-moon" viewBox="0 0 24 24" fill="none"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /></svg>
         </button>
