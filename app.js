@@ -51,6 +51,7 @@
   const dashboardView = $("#dashboardView");
   const credentialsView = $("#credentialsView");
   const executionsView = $("#executionsView");
+  const templatesView = $("#templatesView");
   const floatbarDock = $("#floatbarDock");
   const topbarEl = $(".topbar");
 
@@ -62,17 +63,20 @@
     dashboardView.classList.toggle("is-hidden", view !== "dashboard");
     credentialsView.classList.toggle("is-hidden", view !== "credentials");
     executionsView.classList.toggle("is-hidden", view !== "executions");
+    templatesView.classList.toggle("is-hidden", view !== "templates");
     if (view === "dashboard") renderDashboard();
     if (view === "credentials") renderCredentialsView();
     if (view === "executions") renderExecutionsView();
+    if (view === "templates") renderTemplatesView();
   }
 
+  const SETVIEW_NAMES = ["dashboard", "workflows", "credentials", "executions", "templates"];
   $$(".nav-item").forEach(item => {
     item.addEventListener("click", () => {
       $$(".nav-item").forEach(i => i.classList.remove("is-active"));
       item.classList.add("is-active");
       const view = item.dataset.view;
-      if (view === "dashboard" || view === "workflows" || view === "credentials" || view === "executions") setView(view);
+      if (SETVIEW_NAMES.includes(view)) setView(view);
     });
   });
 
@@ -197,13 +201,27 @@
   let nodeCounter = 0;
   let selectedNodeId = null;
 
+  /* ---------- Node definition schema (§4 of the build doc — "finalized for third parties") ----------
+     Every entry is: { badge, label, cat, color, icon, connection?, params?, branches?, outputFields?, execute? }.
+     A node type is implicitly version 1 unless it ever needs a bump — nothing in the app reads a
+     version number yet, so it's not stamped on every entry; this comment is that convention's home.
+     Two optional hooks are what make this schema actually extensible (add a node type, don't touch
+     the engine):
+       - outputFields[i].derive(resolvedParams, inputJson, meta) — returns this field's run value for
+         the DEFAULT executor (defaultNodeExecute, below). Omit it and the field just falls back to
+         the sample-value map, same as today — safe default for a node nobody's wired up yet.
+       - execute(ctx) — a full override for node types whose output isn't "one item's worth of
+         key/value fields" (Iterator, Aggregator, Table, Execute Workflow all use this; everything
+         else uses the default executor). ctx = { nodeId, type, meta, resolvedParams, inputJson,
+         upstreamItems, nodesById, edges, runtimeOutputs, visitedWorkflows }.
+  */
   const nodeTypeLibrary = {
     webhook:  { badge: "badge-webhook",  label: "Webhook",       cat: "trigger", color: "#F79106",
       icon: '<circle cx="7" cy="17" r="2.6" stroke="currentColor" stroke-width="1.8"/><circle cx="17" cy="7" r="2.6" stroke="currentColor" stroke-width="1.8"/><circle cx="17" cy="17" r="2.6" stroke="currentColor" stroke-width="1.8"/><path d="M9 15.5 15 9M14.6 8 9.6 15.2" stroke="currentColor" stroke-width="1.8"/>',
       outputFields: [{ key: "payload", label: "Payload (JSON)" }, { key: "headers", label: "Headers" }] },
     schedule: { badge: "badge-schedule", label: "Schedule",      cat: "trigger", color: "#57177D",
       icon: '<circle cx="12" cy="13" r="7.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 9v4l2.6 1.6M9 2.5h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
-      outputFields: [{ key: "triggerTime", label: "Trigger Time" }] },
+      outputFields: [{ key: "triggerTime", label: "Trigger Time", type: "string", derive: () => new Date().toISOString() }] },
     http:     { badge: "badge-http",     label: "HTTP Request",  cat: "integrations", color: "#3660B7",
       icon: '<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.7 5.4 3.7 8.5s-1.3 6.1-3.7 8.5c-2.4-2.4-3.7-5.4-3.7-8.5S9.6 5.9 12 3.5Z" stroke="currentColor" stroke-width="1.5"/>',
       params: [
@@ -211,7 +229,10 @@
         { key: "method", label: "Method", type: "select", required: true, options: ["GET", "POST", "PUT", "PATCH", "DELETE"], default: "GET" },
         { key: "body", label: "Body", type: "textarea", mappable: true, placeholder: "Raw JSON body, or map one from an earlier step…" },
       ],
-      outputFields: [{ key: "body", label: "Response Body" }, { key: "status", label: "Status Code" }] },
+      outputFields: [
+        { key: "body", label: "Response Body", type: "string", derive: (rp) => (rp.url ? `Mock ${rp.method || "GET"} response body for ${rp.url}` : undefined) },
+        { key: "status", label: "Status Code", type: "string", derive: () => "200 OK" },
+      ] },
     ifelse:   { badge: "badge-ifelse",   label: "IF / Else",     cat: "logic", color: "#4CAF50",
       icon: '<path d="M4 8h5l4 4h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 5l3 3-3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16h5l3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.2 3.4"/><path d="M14 15l3 3 3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
       branches: [
@@ -224,7 +245,7 @@
         { key: "name", label: "Field Name", type: "text", required: true, placeholder: "e.g. donor_email" },
         { key: "value", label: "Value", type: "textarea", required: true, mappable: true, placeholder: "A static value, or click Map to pull one from an earlier step…" },
       ],
-      outputFields: [{ key: "value", label: "Set Value" }] },
+      outputFields: [{ key: "value", label: "Set Value", type: "string", derive: (rp) => rp.value }] },
     filter:   { badge: "badge-filter",   label: "Filter",        cat: "logic", color: "#3ABD8A",
       icon: '<path d="M4 5h16l-6 8v6l-4-2v-4L4 5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>' },
     email:    { badge: "badge-email",    label: "Email",         cat: "integrations", color: "#E95A78",
@@ -237,7 +258,10 @@
         { key: "channel", label: "Channel", type: "text", required: true, placeholder: "#new-leads" },
         { key: "message", label: "Message", type: "textarea", required: true, mappable: true, placeholder: "Write a message, or map one from an earlier step…" },
       ],
-      outputFields: [{ key: "message", label: "Message Text" }, { key: "channel", label: "Channel" }] },
+      outputFields: [
+        { key: "message", label: "Message Text", type: "string", derive: (rp) => rp.message },
+        { key: "channel", label: "Channel", type: "string", derive: (rp) => rp.channel },
+      ] },
     sheet:    { badge: "badge-sheet",    label: "Google Sheets", cat: "integrations", color: "#0F9D58", brand: true,
       icon: '<path fill="currentColor" d="M11.318 12.545H7.91v-1.909h3.41v1.91zM14.728 0v6h6l-6-6zm1.363 10.636h-3.41v1.91h3.41v-1.91zm0 3.273h-3.41v1.91h3.41v-1.91zM20.727 6.5v15.864c0 .904-.732 1.636-1.636 1.636H4.909a1.636 1.636 0 0 1-1.636-1.636V1.636C3.273.732 4.005 0 4.909 0h9.318v6.5h6.5zm-3.273 2.773H6.545v7.909h10.91v-7.91zm-6.136 4.636H7.91v1.91h3.41v-1.91z"/>',
       connection: { kind: "oauth", service: "Google Sheets", account: "buddyai.v.01@gmail.com" },
@@ -245,7 +269,7 @@
         { key: "sheetName", label: "Sheet Name", type: "text", required: true, placeholder: "Sheet1" },
         { key: "row", label: "Row Data", type: "textarea", required: true, mappable: true, placeholder: "Comma-separated values, or map a field from an earlier step…" },
       ],
-      outputFields: [{ key: "row", label: "Row Data" }] },
+      outputFields: [{ key: "row", label: "Row Data", type: "string", derive: (rp) => rp.row }] },
     ai:       { badge: "badge-ai",       label: "AI Agent",      cat: "ai", color: "#4CAF7D", special: "agent",
       icon: '<rect x="5" y="8" width="14" height="11" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M12 8V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="4" r="1.2" fill="currentColor"/><circle cx="9" cy="13" r="1" fill="currentColor"/><circle cx="15" cy="13" r="1" fill="currentColor"/><path d="M9 16.5h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M3 12h2M19 12h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
       outputFields: [{ key: "output", label: "Agent Output" }] },
@@ -259,7 +283,7 @@
       params: [
         { key: "sampleQuestion", label: "Sample Question", type: "textarea", placeholder: "Type an example question to use when testing this workflow…" },
       ],
-      outputFields: [{ key: "question", label: "Question" }] },
+      outputFields: [{ key: "question", label: "Question", type: "string", derive: (rp) => rp.sampleQuestion }] },
     errorTrigger: { badge: "badge-errortrigger", label: "Error Trigger", cat: "trigger", color: "#E5484D",
       icon: '<path d="M12 9v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="16.2" r="1" fill="currentColor"/><path d="M10.6 3.7 2.9 17.3a1.8 1.8 0 0 0 1.56 2.7h15.08a1.8 1.8 0 0 0 1.56-2.7L13.4 3.7a1.8 1.8 0 0 0-2.8 0Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
       outputFields: [
@@ -274,7 +298,7 @@
         { key: "label", label: "Label", type: "text", placeholder: "e.g. Final Response" },
         { key: "value", label: "Value", type: "textarea", required: true, mappable: true, placeholder: "Map a field from an earlier step…" },
       ],
-      outputFields: [{ key: "value", label: "Output Value" }] },
+      outputFields: [{ key: "value", label: "Output Value", type: "string", derive: (rp) => rp.value }] },
     openrouter: { badge: "badge-openrouter", label: "OpenRouter Chat Completion", cat: "ai", color: "#6467F2", brand: true,
       icon: '<path fill="currentColor" d="M16.778 1.844v1.919q-.569-.026-1.138-.032-.708-.008-1.415.037c-1.93.126-4.023.728-6.149 2.237-2.911 2.066-2.731 1.95-4.14 2.75-.396.223-1.342.574-2.185.798-.841.225-1.753.333-1.751.333v4.229s.768.108 1.61.333c.842.224 1.789.575 2.185.799 1.41.798 1.228.683 4.14 2.75 2.126 1.509 4.22 2.11 6.148 2.236.88.058 1.716.041 2.555.005v1.918l7.222-4.168-7.222-4.17v2.176c-.86.038-1.611.065-2.278.021-1.364-.09-2.417-.357-3.979-1.465-2.244-1.593-2.866-2.027-3.68-2.508.889-.518 1.449-.906 3.822-2.59 1.56-1.109 2.614-1.377 3.978-1.466.667-.044 1.418-.017 2.278.02v2.176L24 6.014Z"/>',
       connection: { kind: "apikey", service: "OpenRouter", placeholder: "sk-or-v1-••••••••••••••••••••••••••", helpUrl: "https://openrouter.ai/keys" },
@@ -285,7 +309,8 @@
           options: ["OpenAI: GPT-4o-mini", "OpenAI: GPT-4o", "Anthropic: Claude 3.5 Sonnet", "Meta: Llama 3.1 70B", "Google: Gemini 1.5 Pro"],
           default: "OpenAI: GPT-4o-mini" },
       ],
-      outputFields: [{ key: "response", label: "Model Response" }] },
+      outputFields: [{ key: "response", label: "Model Response", type: "string",
+        derive: (rp) => `Mock response from ${rp.model || "the model"} — you said: "${rp.content || ""}"` }] },
     gmail:    { badge: "badge-gmail",    label: "Gmail",         cat: "integrations", color: "#EA4335", brand: true,
       icon: '<path fill="currentColor" d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z"/>',
       connection: { kind: "oauth", service: "Gmail", account: "Buddy's Gmail connection (buddyai.v.01@gmail.com)", reauth: "February 28th 2027, 12:05 PM (Sun)" },
@@ -294,7 +319,11 @@
         { key: "subject", label: "Subject", type: "text", required: true, mappable: true, placeholder: "Email subject…" },
         { key: "body", label: "Body", type: "textarea", required: true, mappable: true, placeholder: "Write the email, or map content from an earlier step…" },
       ],
-      outputFields: [{ key: "subject", label: "Subject" }, { key: "from", label: "From" }, { key: "body", label: "Body" }] },
+      outputFields: [
+        { key: "subject", label: "Subject", type: "string", derive: (rp) => rp.subject },
+        { key: "from", label: "From", type: "string", derive: (rp, ij, meta) => meta.connection && meta.connection.account },
+        { key: "body", label: "Body", type: "string", derive: (rp) => rp.body },
+      ] },
     printer:  { badge: "badge-printer",  label: "Printer",       cat: "integrations", color: "#2E8B92",
       icon: '<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="14" width="12" height="8" rx="1" stroke="currentColor" stroke-width="1.8"/>',
       connection: { kind: "form", service: "Printer", submitLabel: "Add Printer",
@@ -316,33 +345,37 @@
       params: [
         { key: "query", label: "SQL Query", type: "textarea", required: true, mappable: true, placeholder: "SELECT * FROM leads WHERE email = ?…" },
       ],
-      outputFields: [{ key: "rows", label: "Query Result" }] },
+      outputFields: [{ key: "rows", label: "Query Result", type: "array", derive: (rp) => (rp.query ? JSON.stringify(["Row 1", "Row 2", "Row 3"]) : undefined) }] },
     ollama:   { badge: "badge-ollama",   label: "Ollama",        cat: "ai", color: "#1a1a1a", brand: true,
       icon: '<path fill="currentColor" d="M16.361 10.26a.894.894 0 0 0-.558.47l-.072.148.001.207c0 .193.004.217.059.353.076.193.152.312.291.448.24.238.51.3.872.205a.86.86 0 0 0 .517-.436.752.752 0 0 0 .08-.498c-.064-.453-.33-.782-.724-.897a1.06 1.06 0 0 0-.466 0zm-9.203.005c-.305.096-.533.32-.65.639a1.187 1.187 0 0 0-.06.52c.057.309.31.59.598.667.362.095.632.033.872-.205.14-.136.215-.255.291-.448.055-.136.059-.16.059-.353l.001-.207-.072-.148a.894.894 0 0 0-.565-.472 1.02 1.02 0 0 0-.474.007Zm4.184 2c-.131.071-.223.25-.195.383.031.143.157.288.353.407.105.063.112.072.117.136.004.038-.01.146-.029.243-.02.094-.036.194-.036.222.002.074.07.195.143.253.064.052.076.054.255.059.164.005.198.001.264-.03.169-.082.212-.234.15-.525-.052-.243-.042-.28.087-.355.137-.08.281-.219.324-.314a.365.365 0 0 0-.175-.48.394.394 0 0 0-.181-.033c-.126 0-.207.03-.355.124l-.085.053-.053-.032c-.219-.13-.259-.145-.391-.143a.396.396 0 0 0-.193.032zm.39-2.195c-.373.036-.475.05-.654.086-.291.06-.68.195-.951.328-.94.46-1.589 1.226-1.787 2.114-.04.176-.045.234-.045.53 0 .294.005.357.043.524.264 1.16 1.332 2.017 2.714 2.173.3.033 1.596.033 1.896 0 1.11-.125 2.064-.727 2.493-1.571.114-.226.169-.372.22-.602.039-.167.044-.23.044-.523 0-.297-.005-.355-.045-.531-.288-1.29-1.539-2.304-3.072-2.497a6.873 6.873 0 0 0-.855-.031zm.645.937a3.283 3.283 0 0 1 1.44.514c.223.148.537.458.671.662.166.251.26.508.303.82.02.143.01.251-.043.482-.08.345-.332.705-.672.957a3.115 3.115 0 0 1-.689.348c-.382.122-.632.144-1.525.138-.582-.006-.686-.01-.853-.042-.57-.107-1.022-.334-1.35-.68-.264-.28-.385-.535-.45-.946-.03-.192.025-.509.137-.776.136-.326.488-.73.836-.963.403-.269.934-.46 1.422-.512.187-.02.586-.02.773-.002zm-5.503-11a1.653 1.653 0 0 0-.683.298C5.617.74 5.173 1.666 4.985 2.819c-.07.436-.119 1.04-.119 1.503 0 .544.064 1.24.155 1.721.02.107.031.202.023.208a8.12 8.12 0 0 1-.187.152 5.324 5.324 0 0 0-.949 1.02 5.49 5.49 0 0 0-.94 2.339 6.625 6.625 0 0 0-.023 1.357c.091.78.325 1.438.727 2.04l.13.195-.037.064c-.269.452-.498 1.105-.605 1.732-.084.496-.095.629-.095 1.294 0 .67.009.803.088 1.266.095.555.288 1.143.503 1.534.071.128.243.393.264.407.007.003-.014.067-.046.141a7.405 7.405 0 0 0-.548 1.873c-.062.417-.071.552-.071.991 0 .56.031.832.148 1.279L3.42 24h1.478l-.05-.091c-.297-.552-.325-1.575-.068-2.597.117-.472.25-.819.498-1.296l.148-.29v-.177c0-.165-.003-.184-.057-.293a.915.915 0 0 0-.194-.25 1.74 1.74 0 0 1-.385-.543c-.424-.92-.506-2.286-.208-3.451.124-.486.329-.918.544-1.154a.787.787 0 0 0 .223-.531c0-.195-.07-.355-.224-.522a3.136 3.136 0 0 1-.817-1.729c-.14-.96.114-2.005.69-2.834.563-.814 1.353-1.336 2.237-1.475.199-.033.57-.028.776.01.226.04.367.028.512-.041.179-.085.268-.19.374-.431.093-.215.165-.333.36-.576.234-.29.46-.489.822-.729.413-.27.884-.467 1.352-.561.17-.035.25-.04.569-.04.319 0 .398.005.569.04a4.07 4.07 0 0 1 1.914.997c.117.109.398.457.488.602.034.057.095.177.132.267.105.241.195.346.374.43.14.068.286.082.503.045.343-.058.607-.053.943.016 1.144.23 2.14 1.173 2.581 2.437.385 1.108.276 2.267-.296 3.153-.097.15-.193.27-.333.419-.301.322-.301.722-.001 1.053.493.539.801 1.866.708 3.036-.062.772-.26 1.463-.533 1.854a2.096 2.096 0 0 1-.224.258.916.916 0 0 0-.194.25c-.054.109-.057.128-.057.293v.178l.148.29c.248.476.38.823.498 1.295.253 1.008.231 2.01-.059 2.581a.845.845 0 0 0-.044.098c0 .006.329.009.732.009h.73l.02-.074.036-.134c.019-.076.057-.3.088-.516.029-.217.029-1.016 0-1.258-.11-.875-.295-1.57-.597-2.226-.032-.074-.053-.138-.046-.141.008-.005.057-.074.108-.152.376-.569.607-1.284.724-2.228.031-.26.031-1.378 0-1.628-.083-.645-.182-1.082-.348-1.525a6.083 6.083 0 0 0-.329-.7l-.038-.064.131-.194c.402-.604.636-1.262.727-2.04a6.625 6.625 0 0 0-.024-1.358 5.512 5.512 0 0 0-.939-2.339 5.325 5.325 0 0 0-.95-1.02 8.097 8.097 0 0 1-.186-.152.692.692 0 0 1 .023-.208c.208-1.087.201-2.443-.017-3.503-.19-.924-.535-1.658-.98-2.082-.354-.338-.716-.482-1.15-.455-.996.059-1.8 1.205-2.116 3.01a6.805 6.805 0 0 0-.097.726c0 .036-.007.066-.015.066a.96.96 0 0 1-.149-.078A4.857 4.857 0 0 0 12 3.03c-.832 0-1.687.243-2.456.698a.958.958 0 0 1-.148.078c-.008 0-.015-.03-.015-.066a6.71 6.71 0 0 0-.097-.725C8.997 1.392 8.337.319 7.46.048a2.096 2.096 0 0 0-.585-.041Zm.293 1.402c.248.197.523.759.682 1.388.03.113.06.244.069.292.007.047.026.152.041.233.067.365.098.76.102 1.24l.002.475-.12.175-.118.178h-.278c-.324 0-.646.041-.954.124l-.238.06c-.033.007-.038-.003-.057-.144a8.438 8.438 0 0 1 .016-2.323c.124-.788.413-1.501.696-1.711.067-.05.079-.049.157.013zm9.825-.012c.17.126.358.46.498.888.28.854.36 2.028.212 3.145-.019.14-.024.151-.057.144l-.238-.06a3.693 3.693 0 0 0-.954-.124h-.278l-.119-.178-.119-.175.002-.474c.004-.669.066-1.19.214-1.772.157-.623.434-1.185.68-1.382.078-.062.09-.063.159-.012z"/>',
       connection: { kind: "ollama", service: "Ollama", defaultHost: "http://localhost", defaultPort: "11434" },
       params: [
         { key: "prompt", label: "Prompt", type: "textarea", required: true, mappable: true, placeholder: "Ask the model anything, or map a field from an earlier step…" },
       ],
-      outputFields: [{ key: "response", label: "Model Response" }] },
+      outputFields: [{ key: "response", label: "Model Response", type: "string",
+        derive: (rp) => `Mock response to: "${rp.prompt || ""}"` }] },
     iterator: { badge: "badge-iterator", label: "Iterator", cat: "logic", color: "#3ABD8A",
       icon: '<circle cx="12" cy="12" r="2.6" stroke="currentColor" stroke-width="1.7"/><path d="M12 3v4M12 17v4M4.2 7.8l2.8 2M17 14.2l2.8 2M4.2 16.2l2.8-2M17 9.8l2.8-2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
       params: [
         { key: "arrayField", label: "Array", type: "text", required: true, mappable: true, placeholder: "Map an array field, or type one as JSON (e.g. [\"a\",\"b\"]) or comma-separated…" },
       ],
-      outputFields: [{ key: "item", label: "Item" }] },
+      execute: (ctx) => executeIterator(ctx.resolvedParams),
+      outputFields: [{ key: "item", label: "Item", type: "string" }] },
     aggregator: { badge: "badge-aggregator", label: "Aggregator", cat: "logic", color: "#2E8B92",
       icon: '<path d="M4 5h16M7 5v3l5 5 5-5V5M12 13v7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
       params: [
         { key: "fieldKey", label: "Field to Collect", type: "text", default: "item", placeholder: "item" },
       ],
-      outputFields: [{ key: "array", label: "Aggregated Array" }] },
+      execute: (ctx) => executeAggregator(ctx.resolvedParams, ctx.upstreamItems),
+      outputFields: [{ key: "array", label: "Aggregated Array", type: "array" }] },
     executeWorkflow: { badge: "badge-executeworkflow", label: "Execute Workflow", cat: "logic", color: "#57177D",
       icon: '<rect x="4" y="4" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.6"/><path d="M11 7.5h3a2 2 0 0 1 2 2v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
       params: [
         { key: "targetWorkflowId", label: "Workflow", type: "workflowSelect", required: true },
         { key: "mode", label: "Mode", type: "select", options: ["Wait for completion", "Fire and forget"], default: "Wait for completion" },
       ],
-      outputFields: [{ key: "output", label: "Sub-workflow Output" }] },
+      execute: (ctx) => executeSubWorkflow(ctx.resolvedParams, ctx.visitedWorkflows),
+      outputFields: [{ key: "output", label: "Sub-workflow Output", type: "string" }] },
     table: { badge: "badge-table", label: "Table", cat: "logic", color: "#0F9D58",
       icon: '<rect x="3.5" y="4.5" width="17" height="15" rx="1.6" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 4.5v15M15 4.5v15" stroke="currentColor" stroke-width="1.4"/>',
       params: [
@@ -350,7 +383,8 @@
         { key: "operation", label: "Operation", type: "select", required: true, options: ["Create Record", "Find Records", "Update Record", "Delete Record"], default: "Create Record" },
         { key: "recordData", label: "Record Data", type: "textarea", mappable: true, placeholder: "One field: value per line, or map fields from an earlier step…" },
       ],
-      outputFields: [{ key: "record", label: "Record" }, { key: "recordId", label: "Record ID" }] },
+      execute: (ctx) => executeTableNode(ctx.resolvedParams),
+      outputFields: [{ key: "record", label: "Record", type: "object" }, { key: "recordId", label: "Record ID", type: "string" }] },
   };
 
   // Session-only store of named credential profiles (mock — no backend).
@@ -1003,10 +1037,11 @@
             ${optionsHtml}
             <option value="__new__"${selectedId === "__new__" ? " selected" : ""}>+ New credential…</option>
           </select>
+          ${selected ? `<button type="button" class="conn-icon-btn conn-share-btn${selected.shared ? " is-active" : ""}" data-action="toggle-share" data-type="${type}" data-id="${selected.id}" title="${selected.shared ? "Shared with your team — click to make private" : "Private — click to mark as shared with your team"}"><svg viewBox="0 0 24 24" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 19v-2a4 4 0 0 1 4-4h3a4 4 0 0 1 4 4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="17.5" cy="9" r="2.4" stroke="currentColor" stroke-width="1.5"/><path d="M15.5 19v-1.5a3.3 3.3 0 0 0-2.2-3.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>` : ""}
           ${selected ? `<button type="button" class="conn-icon-btn" data-action="delete-cred" data-type="${type}" data-id="${selected.id}" title="Delete this credential"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M7 7l1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ""}
         </div>
         <label class="field">
-          <span>Alias</span>
+          <span>Alias${selected && selected.shared ? ' <span class="cred-shared-pill">Shared with team</span>' : ""}</span>
           <input type="text" class="conn-cred-name" placeholder="e.g. Personal ${conn.service}" value="${selected ? selected.name : ""}" />
         </label>
         ${credFieldsHtml(conn, selected ? selected.values : {})}
@@ -1081,7 +1116,7 @@
       } else {
         credIdCounter += 1;
         savedId = "cred-" + Date.now() + "-" + credIdCounter;
-        list.push({ id: savedId, name, values });
+        list.push({ id: savedId, name, values, shared: false }); // shared/owner model (§7) — storage-layer only, no real multi-user auth exists yet
       }
       if (nodeId) { if (nodeData[nodeId]) nodeData[nodeId].credentialId = savedId; }
       else credSelectedId[type] = savedId;
@@ -1089,6 +1124,17 @@
       refreshNodeCheckmarks(type);
       schedulePersist();
       toast(`"${name}" saved`);
+    } else if (action === "toggle-share") {
+      const type = actionEl.dataset.type;
+      const id = actionEl.dataset.id;
+      const meta = nodeTypeLibrary[type];
+      const cred = (credentialStore[type] || []).find(c => c.id === id);
+      if (cred) {
+        cred.shared = !cred.shared;
+        renderConnectionBlock(type, meta, container, nodeId);
+        schedulePersist();
+        toast(cred.shared ? `"${cred.name}" marked as shared with your team` : `"${cred.name}" set back to private`);
+      }
     } else if (action === "delete-cred") {
       const type = actionEl.dataset.type;
       const id = actionEl.dataset.id;
@@ -1781,6 +1827,100 @@
     toast(`Imported "${name}"`);
   }
 
+  /* ---------- Template gallery (§11) — starter workflows, same portable shape as an export,
+     cloned into a new workflow through the existing importWorkflowJSON() path per the build doc. */
+  const WORKFLOW_TEMPLATES = [
+    {
+      formatVersion: 1, app: "Oasys Flow",
+      description: "Capture a lead, route by country, notify the team, and log it.",
+      workflow: { name: "Lead Capture Pipeline", status: "draft" },
+      nodes: [
+        { id: "n1", type: "webhook", name: "Webhook", instanceName: "New Lead", description: "Fires when a new lead is captured from any connected source.", position: { x: 60, y: 120 }, params: {}, credentialId: null, settings: null },
+        { id: "n2", type: "ifelse", name: "IF / Else", instanceName: "Check Country", description: "Routes based on the lead's country.", position: { x: 340, y: 120 }, params: {}, credentialId: null, settings: null },
+        { id: "n3", type: "email", name: "Email", instanceName: "Welcome Email", description: "Sends a welcome email to the new lead.", position: { x: 620, y: 40 }, params: {}, credentialId: null, settings: null },
+        { id: "n4", type: "slack", name: "Slack", instanceName: "Slack Notification", description: "Notifies the sales team in Slack.", position: { x: 620, y: 200 },
+          params: { channel: { value: "#new-leads", mapped: false }, message: { value: "A new lead just came in — check the CRM.", mapped: false } },
+          credentialId: null, settings: null },
+        { id: "n5", type: "sheet", name: "Google Sheets", instanceName: "Log to Sheet", description: "Logs the lead to a spreadsheet.", position: { x: 900, y: 120 },
+          params: { sheetName: { value: "Leads", mapped: false }, row: { value: "New lead logged", mapped: false } },
+          credentialId: null, settings: null },
+      ],
+      connections: [
+        { from: "n1", to: "n2", branch: null },
+        { from: "n2", to: "n3", branch: "yes" },
+        { from: "n2", to: "n4", branch: "else" },
+        { from: "n3", to: "n5", branch: null },
+        { from: "n4", to: "n5", branch: null },
+      ],
+      credentials: {},
+    },
+    {
+      formatVersion: 1, app: "Oasys Flow",
+      description: "Send donors an instant, personalized thank-you email.",
+      workflow: { name: "Donation Thank You Email", status: "draft" },
+      nodes: [
+        { id: "d1", type: "webhook", name: "Webhook", instanceName: "New Donation", description: "Fires when a new donation is received.", position: { x: 60, y: 120 }, params: {}, credentialId: null, settings: null },
+        { id: "d2", type: "set", name: "Set", instanceName: "Format Message", description: "Builds the thank-you message.", position: { x: 340, y: 120 },
+          params: { name: { value: "message", mapped: false }, value: { value: "Thank you so much for your generous donation — it means the world to us!", mapped: false } },
+          credentialId: null, settings: null },
+        { id: "d3", type: "gmail", name: "Gmail", instanceName: "Send Thank You", description: "Emails the donor a thank-you note.", position: { x: 620, y: 120 },
+          params: {
+            to: { value: "donor@example.com", mapped: false },
+            subject: { value: "Thank You For Your Donation!", mapped: false },
+            body: { value: "{{Format Message.value}}", mapped: true },
+          },
+          credentialId: null, settings: null },
+      ],
+      connections: [
+        { from: "d1", to: "d2", branch: null },
+        { from: "d2", to: "d3", branch: null },
+      ],
+      credentials: {},
+    },
+  ];
+
+  // Deep-clone + reassign every node id (and remap connections to match) so using the same
+  // template twice never collides node ids with an earlier clone — nodeData is a single flat
+  // store shared across every workflow, so reusing the template's literal ids would let a second
+  // clone silently overwrite the first one's node data.
+  function cloneTemplateWithFreshIds(template) {
+    const clone = JSON.parse(JSON.stringify(template));
+    const idMap = {};
+    clone.nodes.forEach(n => {
+      const freshId = "tpl-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+      idMap[n.id] = freshId;
+      n.id = freshId;
+    });
+    clone.connections = (clone.connections || []).map(c => ({ ...c, from: idMap[c.from] || c.from, to: idMap[c.to] || c.to }));
+    return clone;
+  }
+
+  function renderTemplatesView() {
+    const grid = $("#templatesGrid");
+    grid.innerHTML = "";
+    WORKFLOW_TEMPLATES.forEach((tpl, i) => {
+      const firstType = tpl.nodes[0] && tpl.nodes[0].type;
+      const meta = nodeTypeLibrary[firstType] || nodeTypeLibrary.webhook;
+      const card = document.createElement("div");
+      card.className = "dashboard-card";
+      card.innerHTML = `
+        <div class="dashboard-card-head">
+          <span class="dashboard-card-icon" style="background:${dashboardCardGradient(i)}"><svg viewBox="0 0 24 24" fill="none">${meta.icon}</svg></span>
+          <span class="dashboard-card-title">${tpl.workflow.name}</span>
+        </div>
+        <span class="dashboard-card-meta">${tpl.nodes.length} node${tpl.nodes.length === 1 ? "" : "s"} · ${tpl.description}</span>
+        <button class="template-use-btn" type="button">Use Template</button>
+      `;
+      card.querySelector(".template-use-btn").addEventListener("click", () => {
+        importWorkflowJSON(cloneTemplateWithFreshIds(tpl));
+        $$(".nav-item").forEach(i2 => i2.classList.remove("is-active"));
+        $('.nav-item[data-view="workflows"]').classList.add("is-active");
+        setView("workflows");
+      });
+      grid.appendChild(card);
+    });
+  }
+
   const activeSwitch = $("#activeSwitch");
   function setActiveSwitch(isOn) {
     activeSwitch.classList.toggle("is-on", isOn);
@@ -1866,36 +2006,27 @@
   const lastRunOutputs = Object.create(null); // nodeId -> items[] for the most recent run — ephemeral, not persisted
   const MAX_EXECUTION_RUNS = 50;
 
-  const OUTPUT_DERIVATION = {
-    set:      { value: (rp) => rp.value },
-    output:   { value: (rp) => rp.value },
-    slack:    { message: (rp) => rp.message, channel: (rp) => rp.channel },
-    sheet:    { row: (rp) => rp.row },
-    chatInterface: { question: (rp) => rp.sampleQuestion || undefined },
-    schedule: { triggerTime: () => new Date().toISOString() },
-    gmail: {
-      subject: (rp) => rp.subject,
-      body: (rp) => rp.body,
-      from: (rp, ij, meta) => (meta.connection && meta.connection.account) || undefined,
-    },
-    openrouter: { response: (rp) => `Mock response from ${rp.model || "the model"} — you said: "${rp.content || ""}"` },
-    ollama:   { response: (rp) => `Mock response to: "${rp.prompt || ""}"` },
-    http: {
-      body: (rp) => (rp.url ? `Mock ${rp.method || "GET"} response body for ${rp.url}` : undefined),
-      status: () => "200 OK",
-    },
-    mysql: { rows: (rp) => (rp.query ? JSON.stringify(["Row 1", "Row 2", "Row 3"]) : undefined) },
-  };
-
-  function deriveOutputValue(type, key, resolvedParams, inputJson, meta) {
-    const fn = OUTPUT_DERIVATION[type] && OUTPUT_DERIVATION[type][key];
-    if (fn) {
-      try {
-        const v = fn(resolvedParams, inputJson, meta);
-        if (v !== undefined && v !== "") return v;
-      } catch (e) { /* fall through to the sample value below */ }
+  // The default executor for any node type that doesn't define its own `execute` (§4): passthrough
+  // if it declares no outputFields at all (Router/Filter/Delay), otherwise one item built field by
+  // field from each outputField's own `derive`, falling back to the sample-value map. This is what
+  // "finalizing the schema" bought — a third-party node type just needs derive/execute on ITSELF,
+  // never a change here.
+  function defaultNodeExecute(ctx) {
+    const { meta, type, resolvedParams, inputJson, upstreamItems } = ctx;
+    if (!meta.outputFields || !meta.outputFields.length) {
+      // Router/Filter/Delay-style nodes don't declare an output shape of their own — Make.com
+      // semantics: they route or gate, they don't transform, so items just pass through untouched.
+      return upstreamItems.length ? upstreamItems : [{ json: inputJson }];
     }
-    return sampleValueFor(key);
+    const json = {};
+    meta.outputFields.forEach(f => {
+      let v;
+      if (f.derive) {
+        try { v = f.derive(resolvedParams, inputJson, meta); } catch (e) { /* fall through to sample below */ }
+      }
+      json[f.key] = (v !== undefined && v !== "") ? v : sampleValueFor(f.key, f.label);
+    });
+    return [{ json, pairedItem: { item: 0 } }];
   }
 
   // Kahn's algorithm — nodes with no incoming edge run first, then whatever they unblock.
@@ -2035,20 +2166,9 @@
         : p.value;
     });
 
-    if (data.type === "iterator") return executeIterator(resolvedParams);
-    if (data.type === "aggregator") return executeAggregator(resolvedParams, upstreamItems);
-    if (data.type === "table") return executeTableNode(resolvedParams);
-    if (data.type === "executeWorkflow") return executeSubWorkflow(resolvedParams, visitedWorkflows);
-
-    if (!meta.outputFields || !meta.outputFields.length) {
-      // Router/Filter/Delay-style nodes don't declare an output shape of their own — Make.com
-      // semantics: they route or gate, they don't transform, so items just pass through untouched.
-      return upstreamItems.length ? upstreamItems : [{ json: inputJson }];
-    }
-
-    const json = {};
-    meta.outputFields.forEach(f => { json[f.key] = deriveOutputValue(data.type, f.key, resolvedParams, inputJson, meta); });
-    return [{ json, pairedItem: { item: 0 } }];
+    const ctx = { nodeId: id, type: data.type, meta, resolvedParams, inputJson, upstreamItems, nodesById, edges, runtimeOutputs, visitedWorkflows };
+    const executor = meta.execute || defaultNodeExecute;
+    return executor(ctx);
   }
   function runWorkflowMockFor(nodesById, edges, visitedWorkflows) {
     const order = computeExecutionOrderFor(nodesById, edges);
