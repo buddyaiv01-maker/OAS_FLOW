@@ -1,7 +1,44 @@
-// Faithful port of legacy_UI/index.html's <section class="canvas-wrap">. Node/edge rendering,
-// drag-to-connect, pan/zoom and the field-mapping engine all still live in app.js and are the
-// real porting work — this is the static shell plus the same empty-state message.
+import { useRef, useState } from "react";
+import { useWorkflow } from "../../state/WorkflowContext.jsx";
+import { nodeTypeLibrary } from "../../lib/nodeTypeLibrary.js";
+import NodeCard, { NODE_W, NODE_H } from "./NodeCard.jsx";
+import EdgeLayer from "./EdgeLayer.jsx";
+
+// Faithful port of legacy_UI's <section class="canvas-wrap"> — now with real node rendering,
+// drag-to-move, and drag-to-connect. Pan/zoom/lock and the field-mapping engine are still TODO.
 export default function Canvas() {
+  const { nodesById, edges, moveNode, connectNodes, setSelectedNodeId } = useWorkflow();
+  const canvasInnerRef = useRef(null);
+  const [connecting, setConnecting] = useState(null); // { from, x, y }
+
+  const nodeList = Object.values(nodesById);
+
+  function toCanvasPoint(clientX, clientY) {
+    const rect = canvasInnerRef.current.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }
+
+  function handleStartConnect(fromId) {
+    function onMouseMove(ev) {
+      setConnecting({ from: fromId, ...toCanvasPoint(ev.clientX, ev.clientY) });
+    }
+    function onMouseUp(ev) {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      const target = document.elementFromPoint(ev.clientX, ev.clientY);
+      const targetNodeEl = target && target.closest(".node");
+      if (targetNodeEl && targetNodeEl.id !== fromId) connectNodes(fromId, targetNodeEl.id, null);
+      setConnecting(null);
+    }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
+  const fromNode = connecting && nodesById[connecting.from];
+  const tempLine = fromNode
+    ? { from: { x: fromNode.x + NODE_W, y: fromNode.y + NODE_H / 2 }, to: { x: connecting.x, y: connecting.y }, color: (nodeTypeLibrary[fromNode.type] || {}).color }
+    : null;
+
   return (
     <section className="canvas-wrap">
       <div className="canvas-controls">
@@ -22,23 +59,28 @@ export default function Canvas() {
       <div className="zoom-readout">100%</div>
 
       <div className="canvas">
-        <div className="canvas-inner">
-          <svg className="edges" width="1200" height="640" viewBox="0 0 1200 640">
-            <defs>
-              <linearGradient id="edgeGrad" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#F79106" />
-                <stop offset="55%" stopColor="#3660B7" />
-                <stop offset="100%" stopColor="#57177D" />
-              </linearGradient>
-            </defs>
-          </svg>
-          <div className="canvas-empty-state">
-            <div className="canvas-empty-icon">
-              <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+        <div className="canvas-inner" ref={canvasInnerRef}>
+          <EdgeLayer nodesById={nodesById} edges={edges} tempLine={tempLine} />
+
+          {nodeList.map((node) => (
+            <NodeCard
+              key={node.id}
+              node={node}
+              onMove={moveNode}
+              onClick={setSelectedNodeId}
+              onStartConnect={handleStartConnect}
+            />
+          ))}
+
+          {nodeList.length === 0 && (
+            <div className="canvas-empty-state">
+              <div className="canvas-empty-icon">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+              </div>
+              <h3>Blank canvas</h3>
+              <p>Click the <strong>+</strong> button below to add your first node.</p>
             </div>
-            <h3>Blank canvas</h3>
-            <p>Click the <strong>+</strong> button below to add your first node.</p>
-          </div>
+          )}
         </div>
       </div>
     </section>

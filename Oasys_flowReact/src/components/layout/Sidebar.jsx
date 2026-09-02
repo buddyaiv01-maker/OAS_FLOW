@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useWorkflow } from "../../state/WorkflowContext.jsx";
 
 const NAV_ITEMS = [
   { view: "dashboard", label: "Dashboard", icon: <path d="M4 13h6V4H4v9Zm10 7h6v-9h-6v9ZM4 20h6v-5H4v5Zm10-11h6V4h-6v5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /> },
@@ -13,6 +14,7 @@ const NAV_ITEMS = [
 // list, and theme toggle are still TODO — this establishes the shell and the nav's data shape.
 export default function Sidebar() {
   const [activeView, setActiveView] = useState("workflows");
+  const { workflows, currentWorkflowId, selectWorkflow, createWorkflow, deleteWorkflow } = useWorkflow();
 
   return (
     <aside className="sidebar" id="sidebar">
@@ -27,7 +29,7 @@ export default function Sidebar() {
         </button>
       </div>
 
-      <button className="btn-new-workflow" title="New Workflow">
+      <button className="btn-new-workflow" title="New Workflow" onClick={createWorkflow}>
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>
         <span>New Workflow</span>
       </button>
@@ -57,7 +59,23 @@ export default function Sidebar() {
           </button>
         </div>
         <ul>
-          <li className="wf-item is-active"><span className="dot dot-live" />Lead Capture Pipeline</li>
+          {workflows.map((wf) => (
+            <li
+              key={wf.id}
+              className={"wf-item" + (wf.id === currentWorkflowId ? " is-active" : "")}
+              onClick={() => selectWorkflow(wf.id)}
+            >
+              <span className={"dot" + (wf.status === "active" ? " dot-live" : "")} />
+              <span className="wf-item-name">{wf.name}</span>
+              <button
+                className="wf-item-delete"
+                title="Delete workflow"
+                onClick={(e) => { e.stopPropagation(); deleteWorkflow(wf.id); }}
+              >
+                <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M7 7l1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </button>
+            </li>
+          ))}
         </ul>
       </div>
 

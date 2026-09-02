@@ -1,14 +1,25 @@
 import { useState } from "react";
+import { useWorkflow } from "../../state/WorkflowContext.jsx";
 
 // Faithful port of legacy_UI/index.html's <header class="topbar">. Undo/redo, execute, save,
 // active-switch and the export/import menu are all still wired to nothing — UI shell only.
 export default function Topbar() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { workflows, currentWorkflowId, renameWorkflow } = useWorkflow();
+  const wf = workflows.find((w) => w.id === currentWorkflowId);
 
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <h1 className="wf-title" contentEditable suppressContentEditableWarning spellCheck={false}>Lead Capture Pipeline</h1>
+        <h1
+          className="wf-title"
+          contentEditable
+          suppressContentEditableWarning
+          spellCheck={false}
+          onBlur={(e) => currentWorkflowId && renameWorkflow(currentWorkflowId, e.target.textContent.trim() || wf?.name)}
+        >
+          {wf ? wf.name : "No workflow selected"}
+        </h1>
         <button className="icon-btn" title="Rename">
           <svg viewBox="0 0 24 24" fill="none"><path d="m16.5 4.5 3 3L8 19l-4 1 1-4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /></svg>
         </button>
