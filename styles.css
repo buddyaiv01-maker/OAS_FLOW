@@ -631,6 +631,23 @@ body::before {
   font-size: 10px; display: flex; align-items: center; justify-content: center;
 }
 
+/* Small corner badges reporting per-node run/pin state after an Execute (§9) */
+.node-run-badge, .node-pin-badge {
+  position: absolute;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 3;
+}
+.node-run-badge svg, .node-pin-badge svg { width: 10px; height: 10px; }
+.node-run-badge {
+  top: -7px; left: -7px;
+  background: #1a2a44; color: var(--blue-soft); border: 1px solid rgba(109,147,232,0.4);
+}
+.node-pin-badge {
+  bottom: -7px; left: -7px;
+  background: #3a2a12; color: var(--orange-soft); border: 1px solid rgba(255,179,71,0.4);
+}
+
 /* Node card filled with a gradient of its own type color */
 .node.node-color-fill {
   border-color: rgba(255,255,255,0.35);
@@ -1395,6 +1412,54 @@ body::before {
   color: var(--danger-soft);
 }
 .settings-hint.is-hidden { display: none; }
+
+/* Read-only "last run output" block in the node modal (§9) */
+.node-run-output {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+}
+.node-run-output.is-hidden { display: none; }
+.node-run-output-label { font-size: 11.5px; font-weight: 600; color: var(--text-mid); text-transform: uppercase; letter-spacing: .04em; }
+.node-run-output pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-hi);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+#modalPinBtn.is-active { color: var(--orange-soft); background: rgba(255,179,71,0.14); }
+
+/* Executions view — one row per past node in the run detail modal */
+.exec-node-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.exec-node-row:last-child { border-bottom: none; }
+.exec-node-row-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.exec-node-row-head .node-badge { width: 26px; height: 26px; border-radius: 7px; }
+.exec-node-row-name { font-size: 13px; font-weight: 600; color: var(--text-hi); }
+.exec-node-row pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-mid);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.status-error { background: rgba(229,72,77,0.14); color: var(--danger-soft); }
+.status-error .dot { background: var(--danger-soft); }
 
 .field-picker-functions {
   display: flex;

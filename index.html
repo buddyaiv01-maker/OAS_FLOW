@@ -227,6 +227,18 @@
       <div class="credentials-detail" id="credentialsDetail"></div>
     </div>
 
+    <!-- ===== EXECUTIONS VIEW ===== -->
+    <div class="dashboard-view is-hidden" id="executionsView">
+      <div class="dashboard-head">
+        <div>
+          <h2>Executions</h2>
+          <p>Every run of every workflow, most recent first.</p>
+        </div>
+      </div>
+      <div class="dashboard-grid" id="executionsGrid"></div>
+      <p class="addnode-popup-empty is-hidden" id="executionsEmpty">No runs yet — hit <strong>Execute</strong> on a workflow to see it here.</p>
+    </div>
+
     <!-- ===== FLOATING BOTTOM TOOLBAR (n8n-style, Oasys Flow palette) ===== -->
     <div class="floatbar-dock" id="floatbarDock">
       <div class="floatbar" id="floatbar">
@@ -380,6 +392,9 @@
         <span class="node-modal-sub" id="modalSub">New Lead</span>
       </div>
       <div class="node-modal-head-actions">
+        <button class="icon-btn" id="modalPinBtn" title="Pin this node's last run output so downstream nodes test against it instead of re-running">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M9 4h6M9.5 4l.5 6-2.5 3v2h9v-2l-2.5-3 .5-6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 15v5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
         <button class="icon-btn" id="modalDocsBtn" title="Documentation">
           <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 17v-5M12 8.2v.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </button>
@@ -421,6 +436,10 @@
             <span>Response</span>
             <select><option>JSON</option><option>Plain Text</option><option>No Response</option></select>
           </label>
+        </div>
+        <div class="node-run-output is-hidden" id="modalRunOutput">
+          <span class="node-run-output-label" id="modalRunOutputLabel">Last run output</span>
+          <pre id="modalRunOutputJson"></pre>
         </div>
       </div>
 
@@ -465,6 +484,26 @@
       </button>
       <button class="save-btn" id="modalDoneBtn">Done</button>
     </footer>
+  </div>
+</div>
+
+<!-- ===== EXECUTION DETAIL — per-node input/output for one past run (§9) ===== -->
+<div class="modal-overlay" id="executionDetailOverlay">
+  <div class="node-modal" id="executionDetailModal">
+    <header class="node-modal-head">
+      <div class="node-modal-title-wrap">
+        <h2 class="node-modal-title" id="execDetailTitle">Run</h2>
+        <span class="node-modal-sub" id="execDetailSub"></span>
+      </div>
+      <div class="node-modal-head-actions">
+        <button class="icon-btn" id="execDetailCloseBtn" title="Close">
+          <svg viewBox="0 0 24 24" fill="none"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="node-modal-body">
+      <div class="node-modal-panel" id="execDetailList"></div>
+    </div>
   </div>
 </div>
 

@@ -50,6 +50,7 @@
   const workspaceView = $("#workspaceView");
   const dashboardView = $("#dashboardView");
   const credentialsView = $("#credentialsView");
+  const executionsView = $("#executionsView");
   const floatbarDock = $("#floatbarDock");
   const topbarEl = $(".topbar");
 
@@ -60,8 +61,10 @@
     topbarEl.classList.toggle("is-hidden", !showEditor);
     dashboardView.classList.toggle("is-hidden", view !== "dashboard");
     credentialsView.classList.toggle("is-hidden", view !== "credentials");
+    executionsView.classList.toggle("is-hidden", view !== "executions");
     if (view === "dashboard") renderDashboard();
     if (view === "credentials") renderCredentialsView();
+    if (view === "executions") renderExecutionsView();
   }
 
   $$(".nav-item").forEach(item => {
@@ -69,7 +72,7 @@
       $$(".nav-item").forEach(i => i.classList.remove("is-active"));
       item.classList.add("is-active");
       const view = item.dataset.view;
-      if (view === "dashboard" || view === "workflows" || view === "credentials") setView(view);
+      if (view === "dashboard" || view === "workflows" || view === "credentials" || view === "executions") setView(view);
     });
   });
 
@@ -1114,8 +1117,9 @@
      token and function name is matched against a fixed allow-list) that:
        1. resolves a reference against the real upstream field list (so unresolvable/renamed-away
           references are visibly left as literal `{{...}}` text rather than silently guessed at), and
-       2. runs the transform chain against representative sample data, so the field shows a live
-          "Preview:" line before any real execution engine exists.
+       2. runs the transform chain against either representative sample data (the "Preview:" line
+          while editing) or real upstream run output (an actual Execute run, §3 of the build doc's
+          Phase 3) — same parser, same transforms, different value source.
   */
   const EXPR_FUNCTIONS = {
     upper: (v) => String(v).toUpperCase(),
@@ -1176,7 +1180,7 @@
       const args = argsRaw ? argsRaw.split(",").map(a => a.trim().replace(/^["']|["']$/g, "")) : [];
       methods.push({ fn: mm[1], args });
     }
-    return { nodeName: match.nodeName, fieldKey: match.fieldKey, fieldLabel: match.fieldLabel, methods };
+    return { nodeId: match.nodeId, nodeName: match.nodeName, fieldKey: match.fieldKey, fieldLabel: match.fieldLabel, methods };
   }
 
   function parseFieldExpressions(text) {
@@ -1192,19 +1196,26 @@
     return segments;
   }
 
-  function evaluateExpressionPreview(text, upstream) {
+  // Shared by the param "Preview:" line (sample data) and the real Execute run (§3's expression
+  // engine feeding actual upstream item data instead of samples) — only how a resolved ref's raw
+  // value is looked up differs, via `resolveValue`.
+  function evaluateExpression(text, upstream, resolveValue) {
     if (!text) return "";
     return parseFieldExpressions(text).map(seg => {
       if (seg.type === "literal") return seg.text;
       const ref = resolveExpressionRef(seg.raw, upstream);
       if (!ref) return `{{${seg.raw}}}`; // unresolved reference — shown as-is, same as a broken link
-      let val = sampleValueFor(ref.fieldKey, ref.fieldLabel);
+      let val = resolveValue(ref);
       ref.methods.forEach(({ fn, args }) => {
         const impl = EXPR_FUNCTIONS[fn];
         if (impl) { try { val = impl(val, args); } catch (e) { /* leave val as-is on a bad call */ } }
       });
       return val;
     }).join("");
+  }
+
+  function evaluateExpressionPreview(text, upstream) {
+    return evaluateExpression(text, upstream, (ref) => sampleValueFor(ref.fieldKey, ref.fieldLabel));
   }
 
   function updateParamPreview(id, key) {
@@ -1470,6 +1481,8 @@
     renderConnectionBlock(data.type, meta, modalConnectionSlot, id);
     renderNodeParams(id, meta);
     renderNodeSettings(id);
+    $("#modalPinBtn").classList.toggle("is-active", !!data.pinnedData);
+    renderNodeRunOutput(id);
     $("#modalWebhookUrlField").classList.toggle("is-hidden", data.type !== "webhook");
     $("#modalHttpRow").classList.toggle("is-hidden", data.type !== "webhook");
     $$(".node-modal-tab").forEach(t => t.classList.toggle("is-active", t.dataset.mtab === "params"));
@@ -1562,6 +1575,7 @@
   // Live per-workflow canvas store — the actual source of truth (persisted to localStorage), not a static seed.
   // workflowCanvasData[workflowId] = { nodes: [{id,type,x,y,sub,desc,params,credentialId}], edges: [[from,to,branch]] }
   const workflowCanvasData = {};
+  let executionRuns = []; // persisted run history — newest first (declared here, ahead of loadPersistedState()'s call site, to avoid a TDZ error)
 
   function snapshotCurrentCanvasInto(store) {
     if (!currentWorkflowId) return;
@@ -1569,7 +1583,7 @@
       nodes: $$(".node", canvasInner).map(el => {
         const d = nodeData[el.id];
         if (!d) return null;
-        return { id: d.id, type: d.type, x: d.x, y: d.y, sub: d.sub, desc: d.desc, params: d.params, credentialId: d.credentialId || null, settings: d.settings || null };
+        return { id: d.id, type: d.type, x: d.x, y: d.y, sub: d.sub, desc: d.desc, params: d.params, credentialId: d.credentialId || null, settings: d.settings || null, pinnedData: d.pinnedData || null };
       }).filter(Boolean),
       edges: edgeList.map(e => [e.from, e.to, e.branch || null]),
     };
@@ -1583,6 +1597,7 @@
     data.nodes.forEach(n => {
       createNode(n.type, n.x, n.y, { id: n.id, sub: n.sub, desc: n.desc, credentialId: n.credentialId, settings: n.settings });
       if (n.params && nodeData[n.id]) nodeData[n.id].params = n.params;
+      if (n.pinnedData && nodeData[n.id]) { nodeData[n.id].pinnedData = n.pinnedData; refreshPinBadge(n.id); }
     });
     data.edges.forEach(([from, to, branch]) => createEdgePath(from, to, branch));
     redrawEdges();
@@ -1595,7 +1610,7 @@
 
   function persist() {
     snapshotCurrentCanvasInto(workflowCanvasData);
-    const state = { v: 1, workflows, currentWorkflowId, wfIdCounter, credIdCounter, workflowCanvasData, credentialStore };
+    const state = { v: 1, workflows, currentWorkflowId, wfIdCounter, credIdCounter, workflowCanvasData, credentialStore, executionRuns };
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
   }
   function schedulePersist() {
@@ -1619,6 +1634,7 @@
       Object.assign(workflowCanvasData, state.workflowCanvasData || {});
       Object.keys(credentialStore).forEach(k => delete credentialStore[k]);
       Object.assign(credentialStore, state.credentialStore || {});
+      executionRuns = Array.isArray(state.executionRuns) ? state.executionRuns : [];
       return true;
     } catch (e) { return false; }
   }
@@ -1639,6 +1655,7 @@
         params: d.params,
         credentialId: d.credentialId || null,
         settings: d.settings || null,
+        pinnedData: d.pinnedData || null,
       };
     }).filter(Boolean);
     const connections = edgeList.map(e => ({ from: e.from, to: e.to, branch: e.branch || null }));
@@ -1699,6 +1716,7 @@
         id: n.id, sub: n.instanceName, desc: n.description, credentialId: n.credentialId || null, settings: n.settings || null,
       });
       if (n.params && nodeData[n.id]) nodeData[n.id].params = n.params;
+      if (n.pinnedData && nodeData[n.id]) { nodeData[n.id].pinnedData = n.pinnedData; refreshPinBadge(n.id); }
     });
     (payload.connections || []).forEach(c => {
       if (document.getElementById(c.from) && document.getElementById(c.to)) createEdgePath(c.from, c.to, c.branch);
@@ -1787,18 +1805,262 @@
   $("#undoBtn").addEventListener("click", doUndo);
   $("#redoBtn").addEventListener("click", doRedo);
 
-  function runExecuteAnimation() {
+  /* ---------- Mock execution engine (Phase 3 — §2 item model / §9 execution log & pin data) ----------
+     There's no real backend yet (that's §16 / Phase 10), so "executing" means walking the graph in
+     topological order and, per node, resolving its mapped params against REAL upstream item data —
+     the same expression engine that drives the "Preview:" line, just fed run data instead of samples —
+     then producing an n8n-shaped item ({ json, pairedItem }, §2). Where a node's output can't be known
+     without a real integration call, it falls back to the same sample values used for previews, so a
+     run is always at least honestly labeled "Mock response…" rather than inventing a fake real one.
+  */
+  const lastRunOutputs = Object.create(null); // nodeId -> items[] for the most recent run — ephemeral, not persisted
+  const MAX_EXECUTION_RUNS = 50;
+
+  const OUTPUT_DERIVATION = {
+    set:      { value: (rp) => rp.value },
+    output:   { value: (rp) => rp.value },
+    slack:    { message: (rp) => rp.message, channel: (rp) => rp.channel },
+    sheet:    { row: (rp) => rp.row },
+    chatInterface: { question: (rp) => rp.sampleQuestion || undefined },
+    schedule: { triggerTime: () => new Date().toISOString() },
+    gmail: {
+      subject: (rp) => rp.subject,
+      body: (rp) => rp.body,
+      from: (rp, ij, meta) => (meta.connection && meta.connection.account) || undefined,
+    },
+    openrouter: { response: (rp) => `Mock response from ${rp.model || "the model"} — you said: "${rp.content || ""}"` },
+    ollama:   { response: (rp) => `Mock response to: "${rp.prompt || ""}"` },
+    http: {
+      body: (rp) => (rp.url ? `Mock ${rp.method || "GET"} response body for ${rp.url}` : undefined),
+      status: () => "200 OK",
+    },
+    mysql: { rows: (rp) => (rp.query ? `Mock result for: ${rp.query}` : undefined) },
+  };
+
+  function deriveOutputValue(type, key, resolvedParams, inputJson, meta) {
+    const fn = OUTPUT_DERIVATION[type] && OUTPUT_DERIVATION[type][key];
+    if (fn) {
+      try {
+        const v = fn(resolvedParams, inputJson, meta);
+        if (v !== undefined && v !== "") return v;
+      } catch (e) { /* fall through to the sample value below */ }
+    }
+    return sampleValueFor(key);
+  }
+
+  // Kahn's algorithm — nodes with no incoming edge run first, then whatever they unblock.
+  function computeExecutionOrder() {
+    const ids = Object.keys(nodeData);
+    const indegree = {};
+    ids.forEach(id => { indegree[id] = 0; });
+    edgeList.forEach(e => { if (indegree[e.to] != null) indegree[e.to]++; });
+    const queue = ids.filter(id => indegree[id] === 0);
+    const order = [];
+    const visited = new Set();
+    while (queue.length) {
+      const id = queue.shift();
+      if (visited.has(id)) continue;
+      visited.add(id);
+      order.push(id);
+      edgeList.filter(e => e.from === id).forEach(e => {
+        if (indegree[e.to] == null) return;
+        indegree[e.to]--;
+        if (indegree[e.to] === 0) queue.push(e.to);
+      });
+    }
+    ids.forEach(id => { if (!visited.has(id)) order.push(id); }); // defensive: stray cycle, append the rest as-is
+    return order;
+  }
+
+  function mockExecuteNode(id, upstreamItems) {
+    const data = nodeData[id];
+    const meta = nodeTypeLibrary[data.type];
+    const upstream = getUpstreamOutputFields(id);
+    const inputJson = (upstreamItems[0] && upstreamItems[0].json) || {};
+
+    const resolvedParams = {};
+    Object.entries(data.params || {}).forEach(([key, p]) => {
+      resolvedParams[key] = p.mapped
+        ? evaluateExpression(p.value, upstream, (ref) => {
+            const out = lastRunOutputs[ref.nodeId];
+            const item = out && out[0];
+            const val = item && item.json ? item.json[ref.fieldKey] : undefined;
+            return val !== undefined ? val : sampleValueFor(ref.fieldKey, ref.fieldLabel);
+          })
+        : p.value;
+    });
+
+    if (!meta.outputFields || !meta.outputFields.length) {
+      // Router/Filter/Delay-style nodes don't declare an output shape of their own — Make.com
+      // semantics: they route or gate, they don't transform, so items just pass through untouched.
+      return upstreamItems.length ? upstreamItems : [{ json: inputJson }];
+    }
+
+    const json = {};
+    meta.outputFields.forEach(f => { json[f.key] = deriveOutputValue(data.type, f.key, resolvedParams, inputJson, meta); });
+    return [{ json, pairedItem: { item: 0 } }];
+  }
+
+  function runWorkflowMock() {
+    const order = computeExecutionOrder();
+    order.forEach(id => {
+      const data = nodeData[id];
+      if (!data) return;
+      const incoming = edgeList.filter(e => e.to === id);
+      const upstreamItems = incoming.length ? incoming.flatMap(e => lastRunOutputs[e.from] || []) : [];
+      lastRunOutputs[id] = (data.pinnedData && data.pinnedData.length) ? data.pinnedData : mockExecuteNode(id, upstreamItems);
+    });
+    return order;
+  }
+
+  function markNodeRan(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let badge = el.querySelector(".node-run-badge");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "node-run-badge";
+      badge.innerHTML = '<svg viewBox="0 0 24 24" fill="none"><path d="m5 12 5 5L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      el.appendChild(badge);
+    }
+    badge.title = "Ran successfully at " + new Date().toLocaleTimeString();
+  }
+
+  function pushExecutionRun(order) {
+    const wf = workflows.find(w => w.id === currentWorkflowId);
+    const nodeResults = order.map(id => {
+      const data = nodeData[id];
+      const meta = data && nodeTypeLibrary[data.type];
+      return {
+        id,
+        label: (data && data.sub) || id,
+        badge: (meta && meta.badge) || "",
+        output: (lastRunOutputs[id] && lastRunOutputs[id][0] && lastRunOutputs[id][0].json) || {},
+      };
+    });
+    executionRuns.unshift({
+      id: "run-" + Date.now(),
+      workflowId: currentWorkflowId,
+      workflowName: (wf && wf.name) || $("#wfTitle").textContent.trim(),
+      startedAt: new Date().toISOString(),
+      status: "success",
+      nodeCount: order.length,
+      nodeResults,
+    });
+    if (executionRuns.length > MAX_EXECUTION_RUNS) executionRuns.length = MAX_EXECUTION_RUNS;
+  }
+
+  function executeWorkflow() {
     const nodes = $$(".node");
     if (nodes.length === 0) { toast("Nothing to execute — canvas is empty"); return; }
-    nodes.forEach((n, i) => {
+    const order = runWorkflowMock();
+    order.forEach((id, i) => {
+      const n = document.getElementById(id);
+      if (!n) return;
       setTimeout(() => {
         n.style.boxShadow = "0 0 0 3px rgba(247,145,6,0.5), var(--shadow-lift)";
+        markNodeRan(id);
         setTimeout(() => { n.style.boxShadow = ""; }, 380);
       }, i * 160);
     });
-    toast("Executing workflow…");
+    pushExecutionRun(order);
+    schedulePersist();
+    if (!executionsView.classList.contains("is-hidden")) renderExecutionsView();
+    if (selectedNodeId && overlay.classList.contains("is-open")) renderNodeRunOutput(selectedNodeId);
+    toast(`Executed — ${order.length} node${order.length === 1 ? "" : "s"} ran`);
   }
-  $("#executeBtn").addEventListener("click", runExecuteAnimation);
+  $("#executeBtn").addEventListener("click", executeWorkflow);
+
+  /* ---------- Executions view — per-run history list + per-node input/output detail (§9) ---------- */
+  function renderExecutionsView() {
+    const grid = $("#executionsGrid");
+    grid.innerHTML = "";
+    executionRuns.forEach((run, i) => {
+      const card = document.createElement("div");
+      card.className = "dashboard-card";
+      card.setAttribute("role", "button");
+      card.setAttribute("tabindex", "0");
+      const when = new Date(run.startedAt);
+      card.innerHTML = `
+        <div class="dashboard-card-head">
+          <span class="dashboard-card-icon" style="background:${dashboardCardGradient(i)}"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+          <span class="dashboard-card-title">${run.workflowName}</span>
+        </div>
+        <span class="dashboard-card-status ${run.status === "success" ? "status-active" : "status-error"}"><span class="dot"></span>${run.status === "success" ? "Success" : "Error"}</span>
+        <span class="dashboard-card-meta">${run.nodeCount} node${run.nodeCount === 1 ? "" : "s"} · ${when.toLocaleString()}</span>
+      `;
+      card.addEventListener("click", () => openExecutionDetail(run));
+      grid.appendChild(card);
+    });
+    $("#executionsEmpty").classList.toggle("is-hidden", executionRuns.length > 0);
+  }
+
+  function openExecutionDetail(run) {
+    $("#execDetailTitle").textContent = run.workflowName;
+    $("#execDetailSub").textContent = new Date(run.startedAt).toLocaleString() + " · " + run.nodeCount + " node" + (run.nodeCount === 1 ? "" : "s");
+    $("#execDetailList").innerHTML = run.nodeResults.map(nr => `
+      <div class="exec-node-row">
+        <div class="exec-node-row-head">
+          <span class="node-badge ${nr.badge}"></span>
+          <span class="exec-node-row-name">${nr.label}</span>
+        </div>
+        <pre>${JSON.stringify(nr.output, null, 2)}</pre>
+      </div>
+    `).join("") || `<p class="addnode-popup-empty">No nodes ran.</p>`;
+    $("#executionDetailOverlay").classList.add("is-open");
+  }
+  $("#execDetailCloseBtn").addEventListener("click", () => $("#executionDetailOverlay").classList.remove("is-open"));
+  $("#executionDetailOverlay").addEventListener("mousedown", (e) => {
+    if (e.target.id === "executionDetailOverlay") $("#executionDetailOverlay").classList.remove("is-open");
+  });
+
+  /* ---------- Pin data — freeze a node's last run so downstream nodes test against it (§9) ---------- */
+  function refreshPinBadge(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const data = nodeData[id];
+    const pinned = !!(data && data.pinnedData);
+    let badge = el.querySelector(".node-pin-badge");
+    if (pinned && !badge) {
+      badge = document.createElement("span");
+      badge.className = "node-pin-badge";
+      badge.title = "Output pinned — downstream nodes use this instead of re-running";
+      badge.innerHTML = '<svg viewBox="0 0 24 24" fill="none"><path d="M9 4h6M9.5 4l.5 6-2.5 3v2h9v-2l-2.5-3 .5-6" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
+      el.appendChild(badge);
+    } else if (!pinned && badge) {
+      badge.remove();
+    }
+  }
+
+  function renderNodeRunOutput(id) {
+    const data = nodeData[id];
+    const runBlock = $("#modalRunOutput");
+    const items = (data && data.pinnedData) || lastRunOutputs[id];
+    if (!data || !items || !items.length) { runBlock.classList.add("is-hidden"); return; }
+    runBlock.classList.remove("is-hidden");
+    $("#modalRunOutputLabel").textContent = (data.pinnedData ? "Pinned output" : "Last run output") + (items.length > 1 ? ` (${items.length} items)` : "");
+    $("#modalRunOutputJson").textContent = JSON.stringify(items[0].json, null, 2);
+  }
+
+  function onPinToggle() {
+    const id = selectedNodeId;
+    const data = nodeData[id];
+    if (!data) return;
+    if (data.pinnedData) {
+      data.pinnedData = null;
+      toast("Unpinned — this node will run normally again");
+    } else {
+      const items = lastRunOutputs[id];
+      if (!items || !items.length) { toast("Execute the workflow at least once before pinning this node"); return; }
+      data.pinnedData = items;
+      toast("Pinned this node's output");
+    }
+    $("#modalPinBtn").classList.toggle("is-active", !!data.pinnedData);
+    renderNodeRunOutput(id);
+    refreshPinBadge(id);
+    schedulePersist();
+  }
+  $("#modalPinBtn").addEventListener("click", onPinToggle);
 
   function saveWorkflow() {
     $(".autosave").textContent = "Saved just now";
@@ -1907,7 +2169,7 @@
     closeAddNodePopup();
   });
 
-  $("#fbExecute").addEventListener("click", runExecuteAnimation);
+  $("#fbExecute").addEventListener("click", executeWorkflow);
   $("#fbRunCaret").addEventListener("click", () => toast("More run options coming soon"));
 
   const scheduleBtn = $("#fbSchedule");
