@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { nodeTypeLibrary } from "../../lib/nodeTypeLibrary.js";
 
 const FUNCTIONS = [
   { fn: "upper", label: "UPPER", title: "Uppercase" },
@@ -17,10 +16,7 @@ export default function FieldPicker({ upstream, onPick, onFunction, style }) {
   const groups = new Map();
   upstream.forEach((o) => {
     if (q && !o.fieldLabel.toLowerCase().includes(q) && !o.nodeName.toLowerCase().includes(q)) return;
-    if (!groups.has(o.nodeId)) {
-      const meta = nodeTypeLibrary[o.type] || {};
-      groups.set(o.nodeId, { nodeName: o.nodeName, color: o.color, fields: [] });
-    }
+    if (!groups.has(o.nodeId)) groups.set(o.nodeId, { nodeName: o.nodeName, color: o.color, fields: [] });
     groups.get(o.nodeId).fields.push(o);
   });
 

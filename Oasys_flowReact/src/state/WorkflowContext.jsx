@@ -188,7 +188,10 @@ export function WorkflowProvider({ children }) {
       const node = nodesById[id];
       const meta = node && nodeTypeLibrary[node.type];
       if (meta && meta.outputFields) {
-        meta.outputFields.forEach((f) => options.push({ nodeId: id, nodeName: (node && node.sub) || meta.label, fieldKey: f.key, fieldLabel: f.label }));
+        meta.outputFields.forEach((f) => options.push({
+          nodeId: id, nodeName: (node && node.sub) || meta.label, fieldKey: f.key, fieldLabel: f.label,
+          color: meta.color || "#F79106",
+        }));
       }
       edges.filter((e) => e.to === id).forEach((e) => queue.push(e.from));
     }

@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useWorkflow } from "../../state/WorkflowContext.jsx";
 import { nodeTypeLibrary } from "../../lib/nodeTypeLibrary.js";
+import { evaluateExpressionPreview } from "../../lib/expressionEngine.js";
+import FieldPicker from "./FieldPicker.jsx";
 
 const TABS = [
   { key: "params", label: "Parameters" },
@@ -8,16 +10,52 @@ const TABS = [
   { key: "notes", label: "Notes" },
 ];
 
-function ParamField({ node, param, updateNodeParam }) {
-  const state = node.params[param.key] || { value: param.default || "" };
+function ParamField({ node, param, upstream, updateNodeParam, setParamMapped, onOpenPicker }) {
+  const state = node.params[param.key] || { value: param.default || "", mapped: false };
   const onChange = (e) => updateNodeParam(node.id, param.key, e.target.value);
+  const insertBtnRef = useRef(null);
 
   return (
-    <label className="field param-field">
+    <label className={"field param-field" + (state.mapped ? " is-mapped" : "")}>
       <div className="param-field-head">
         <span>{param.label}{param.required ? <span className="req">*</span> : null}</span>
+        {param.mappable && (
+          <div className="param-map-row">
+            <button
+              type="button"
+              className={"param-map-toggle" + (state.mapped ? " is-on" : "")}
+              onClick={() => setParamMapped(node.id, param.key, !state.mapped)}
+            >
+              <span className="knob" />
+            </button>
+            <span className="param-map-label">Map</span>
+          </div>
+        )}
       </div>
-      {param.type === "textarea" ? (
+
+      {state.mapped ? (
+        <>
+          <div className="param-mapped-wrap">
+            <input
+              type="text"
+              className="param-input param-mapped-input"
+              placeholder="Enter text or click a field to insert…"
+              value={state.value || ""}
+              onChange={onChange}
+            />
+            <button
+              type="button"
+              ref={insertBtnRef}
+              className="param-mapped-insert-btn"
+              title="Insert a field from an earlier step"
+              onClick={() => onOpenPicker(param.key, insertBtnRef.current)}
+            >
+              <svg viewBox="0 0 24 24" fill="none"><path d="M8 4a3 3 0 0 0-3 3v3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3a3 3 0 0 0 3 3M16 4a3 3 0 0 1 3 3v3a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3a3 3 0 0 1-3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+          </div>
+          <p className="param-preview">Preview: <span>{evaluateExpressionPreview(state.value, upstream) || "—"}</span></p>
+        </>
+      ) : param.type === "textarea" ? (
         <textarea className="param-input" rows={2} value={state.value || ""} placeholder={param.placeholder || ""} onChange={onChange} />
       ) : param.type === "select" ? (
         <select className="param-input" value={state.value || param.default || ""} onChange={onChange}>
@@ -30,21 +68,57 @@ function ParamField({ node, param, updateNodeParam }) {
   );
 }
 
-// Port target for legacy_UI/app.js's #nodeModalOverlay. Params render and save for real; field
-// mapping/expressions (the Map toggle + field picker) is Phase 1 scope, not built here yet.
-// Settings/Notes tabs are inert placeholders, matching where the vanilla app was before Phase 2.
+// Port target for legacy_UI/app.js's #nodeModalOverlay, now with real field mapping (§3): the Map
+// toggle, field picker (grouped by upstream node, ƒ transform chips), and a live evaluated preview.
+// Settings/Notes tabs are still inert placeholders (Phase 2 scope).
 export default function NodeModal() {
-  const { nodesById, selectedNodeId, setSelectedNodeId, renameNode, updateNodeDesc, updateNodeParam, deleteNode } = useWorkflow();
+  const {
+    nodesById, selectedNodeId, setSelectedNodeId, renameNode, updateNodeDesc,
+    updateNodeParam, setParamMapped, deleteNode, getUpstreamOutputFields,
+  } = useWorkflow();
   const [tab, setTab] = useState("params");
+  const [picker, setPicker] = useState(null); // { key, style }
   const node = selectedNodeId ? nodesById[selectedNodeId] : null;
 
   if (!node) return null;
   const meta = nodeTypeLibrary[node.type];
   if (!meta) return null;
 
+  const upstream = getUpstreamOutputFields(node.id);
+
   function close() {
     setTab("params");
+    setPicker(null);
     setSelectedNodeId(null);
+  }
+
+  function openPicker(key, anchorEl) {
+    const r = anchorEl.getBoundingClientRect();
+    const panelW = 280;
+    setPicker({
+      key,
+      style: {
+        left: Math.min(r.left, window.innerWidth - panelW - 12),
+        top: Math.min(r.bottom + 8, window.innerHeight - 340),
+      },
+    });
+  }
+
+  function pickToken(token) {
+    const state = node.params[picker.key];
+    const current = state.value || "";
+    updateNodeParam(node.id, picker.key, current ? current + " " + token : token);
+    setPicker(null);
+  }
+
+  function applyFunction(fn) {
+    const state = node.params[picker.key];
+    const current = state.value || "";
+    const lastClose = current.lastIndexOf("}}");
+    if (lastClose === -1) return;
+    const argsText = fn === "default" ? '"N/A"' : "";
+    const next = current.slice(0, lastClose) + `.${fn}(${argsText})` + current.slice(lastClose);
+    updateNodeParam(node.id, picker.key, next);
   }
 
   return (
@@ -85,7 +159,15 @@ export default function NodeModal() {
           {tab === "params" && (
             <div className="node-modal-panel">
               {(meta.params || []).map((p) => (
-                <ParamField key={p.key} node={node} param={p} updateNodeParam={updateNodeParam} />
+                <ParamField
+                  key={p.key}
+                  node={node}
+                  param={p}
+                  upstream={upstream}
+                  updateNodeParam={updateNodeParam}
+                  setParamMapped={setParamMapped}
+                  onOpenPicker={openPicker}
+                />
               ))}
               <label className="field">
                 <span>Description</span>
@@ -116,6 +198,10 @@ export default function NodeModal() {
           <button className="save-btn" onClick={close}>Done</button>
         </footer>
       </div>
+
+      {picker && (
+        <FieldPicker upstream={upstream} onPick={pickToken} onFunction={applyFunction} style={picker.style} />
+      )}
     </div>
   );
 }
