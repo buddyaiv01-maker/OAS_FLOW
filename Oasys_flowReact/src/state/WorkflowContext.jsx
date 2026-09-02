@@ -126,8 +126,33 @@ export function WorkflowProvider({ children }) {
     setNodesById((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], x, y } } : prev));
   }
 
+  // A mapped field stores its reference as literal `{{NodeName.field...}}` text. If the source
+  // node is renamed, every OTHER field that mapped to it must be rewritten too, or the mapping
+  // silently breaks (the token would still read the old name and no longer resolve to any node).
+  function cascadeNodeRename(oldName, newName) {
+    if (!oldName || !newName || oldName === newName) return;
+    const oldPrefix = `{{${oldName}.`;
+    const newPrefix = `{{${newName}.`;
+    setNodesById((prev) => {
+      let touched = false;
+      const next = { ...prev };
+      Object.values(next).forEach((n) => {
+        Object.entries(n.params || {}).forEach(([key, p]) => {
+          if (p.mapped && typeof p.value === "string" && p.value.includes(oldPrefix)) {
+            const newValue = p.value.split(oldPrefix).join(newPrefix);
+            next[n.id] = { ...next[n.id], params: { ...next[n.id].params, [key]: { ...next[n.id].params[key], value: newValue } } };
+            touched = true;
+          }
+        });
+      });
+      return touched ? next : prev;
+    });
+  }
+
   function renameNode(id, sub) {
+    const oldName = nodesById[id] && nodesById[id].sub;
     setNodesById((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], sub } } : prev));
+    cascadeNodeRename(oldName, sub);
   }
 
   function updateNodeDesc(id, desc) {
@@ -140,6 +165,34 @@ export function WorkflowProvider({ children }) {
       if (!node || !node.params[key]) return prev;
       return { ...prev, [id]: { ...node, params: { ...node.params, [key]: { ...node.params[key], value } } } };
     });
+  }
+
+  function setParamMapped(id, key, mapped) {
+    setNodesById((prev) => {
+      const node = prev[id];
+      if (!node || !node.params[key]) return prev;
+      return { ...prev, [id]: { ...node, params: { ...node.params, [key]: { ...node.params[key], mapped } } } };
+    });
+  }
+
+  // BFS backward through edges collecting every ancestor's outputFields — what the field-picker
+  // and expression evaluator resolve `{{NodeName.field}}` references against.
+  function getUpstreamOutputFields(nodeId) {
+    const visited = new Set();
+    const queue = edges.filter((e) => e.to === nodeId).map((e) => e.from);
+    const options = [];
+    while (queue.length) {
+      const id = queue.shift();
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const node = nodesById[id];
+      const meta = node && nodeTypeLibrary[node.type];
+      if (meta && meta.outputFields) {
+        meta.outputFields.forEach((f) => options.push({ nodeId: id, nodeName: (node && node.sub) || meta.label, fieldKey: f.key, fieldLabel: f.label }));
+      }
+      edges.filter((e) => e.to === id).forEach((e) => queue.push(e.from));
+    }
+    return options;
   }
 
   function deleteNode(id) {
@@ -167,8 +220,8 @@ export function WorkflowProvider({ children }) {
   const value = useMemo(() => ({
     workflows, currentWorkflowId, nodesById, edges, selectedNodeId,
     setSelectedNodeId, selectWorkflow, createWorkflow, deleteWorkflow, renameWorkflow,
-    addNode, moveNode, renameNode, updateNodeDesc, updateNodeParam, deleteNode,
-    connectNodes, removeEdge,
+    addNode, moveNode, renameNode, updateNodeDesc, updateNodeParam, setParamMapped, deleteNode,
+    connectNodes, removeEdge, getUpstreamOutputFields,
   }), [workflows, currentWorkflowId, nodesById, edges, selectedNodeId]);
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>;
