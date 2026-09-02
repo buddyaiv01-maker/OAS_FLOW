@@ -324,6 +324,33 @@
         { key: "prompt", label: "Prompt", type: "textarea", required: true, mappable: true, placeholder: "Ask the model anything, or map a field from an earlier step…" },
       ],
       outputFields: [{ key: "response", label: "Model Response" }] },
+    iterator: { badge: "badge-iterator", label: "Iterator", cat: "logic", color: "#3ABD8A",
+      icon: '<circle cx="12" cy="12" r="2.6" stroke="currentColor" stroke-width="1.7"/><path d="M12 3v4M12 17v4M4.2 7.8l2.8 2M17 14.2l2.8 2M4.2 16.2l2.8-2M17 9.8l2.8-2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
+      params: [
+        { key: "arrayField", label: "Array", type: "text", required: true, mappable: true, placeholder: "Map an array field, or type one as JSON (e.g. [\"a\",\"b\"]) or comma-separated…" },
+      ],
+      outputFields: [{ key: "item", label: "Item" }] },
+    aggregator: { badge: "badge-aggregator", label: "Aggregator", cat: "logic", color: "#2E8B92",
+      icon: '<path d="M4 5h16M7 5v3l5 5 5-5V5M12 13v7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+      params: [
+        { key: "fieldKey", label: "Field to Collect", type: "text", default: "item", placeholder: "item" },
+      ],
+      outputFields: [{ key: "array", label: "Aggregated Array" }] },
+    executeWorkflow: { badge: "badge-executeworkflow", label: "Execute Workflow", cat: "logic", color: "#57177D",
+      icon: '<rect x="4" y="4" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.6"/><path d="M11 7.5h3a2 2 0 0 1 2 2v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+      params: [
+        { key: "targetWorkflowId", label: "Workflow", type: "workflowSelect", required: true },
+        { key: "mode", label: "Mode", type: "select", options: ["Wait for completion", "Fire and forget"], default: "Wait for completion" },
+      ],
+      outputFields: [{ key: "output", label: "Sub-workflow Output" }] },
+    table: { badge: "badge-table", label: "Table", cat: "logic", color: "#0F9D58",
+      icon: '<rect x="3.5" y="4.5" width="17" height="15" rx="1.6" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 4.5v15M15 4.5v15" stroke="currentColor" stroke-width="1.4"/>',
+      params: [
+        { key: "tableName", label: "Table", type: "text", required: true, placeholder: "e.g. Leads" },
+        { key: "operation", label: "Operation", type: "select", required: true, options: ["Create Record", "Find Records", "Update Record", "Delete Record"], default: "Create Record" },
+        { key: "recordData", label: "Record Data", type: "textarea", mappable: true, placeholder: "One field: value per line, or map fields from an earlier step…" },
+      ],
+      outputFields: [{ key: "record", label: "Record" }, { key: "recordId", label: "Record ID" }] },
   };
 
   // Session-only store of named credential profiles (mock — no backend).
@@ -1089,22 +1116,27 @@
   }
 
   /* ---------- Node parameter mapping — "Map" toggle lets a field pull from an upstream node's output ---------- */
-  function getUpstreamOutputFields(nodeId) {
+  // Graph-parameterized so a sub-workflow (Execute Workflow node, §5.4) can resolve upstream
+  // fields against a SAVED workflow's nodes/edges without touching the live canvas/DOM at all.
+  function getUpstreamOutputFieldsFor(nodeId, nodesById, edges) {
     const visited = new Set();
-    const queue = edgeList.filter(e => e.to === nodeId).map(e => e.from);
+    const queue = edges.filter(e => e.to === nodeId).map(e => e.from);
     const options = [];
     while (queue.length) {
       const id = queue.shift();
       if (visited.has(id)) continue;
       visited.add(id);
-      const data = nodeData[id];
+      const data = nodesById[id];
       const meta = data && nodeTypeLibrary[data.type];
       if (meta && meta.outputFields) {
-        meta.outputFields.forEach(f => options.push({ nodeId: id, nodeName: data.sub || meta.label, fieldKey: f.key, fieldLabel: f.label }));
+        meta.outputFields.forEach(f => options.push({ nodeId: id, nodeName: (data && data.sub) || meta.label, fieldKey: f.key, fieldLabel: f.label }));
       }
-      edgeList.filter(e => e.to === id).forEach(e => queue.push(e.from));
+      edges.filter(e => e.to === id).forEach(e => queue.push(e.from));
     }
     return options;
+  }
+  function getUpstreamOutputFields(nodeId) {
+    return getUpstreamOutputFieldsFor(nodeId, nodeData, edgeList);
   }
 
   const modalParamsSlot = $("#modalParamsSlot");
@@ -1157,6 +1189,10 @@
     nodeName: "HTTP Request",
     workflowName: "Lead Capture Pipeline",
     timestamp: "2026-09-02T14:32:00Z",
+    item: "Item A",
+    array: '["Item A","Item B","Item C"]',
+    record: '{"id":"rec-1","name":"Sample Record"}',
+    recordId: "rec-1",
   };
   function sampleValueFor(fieldKey, fieldLabel) {
     return SAMPLE_FIELD_VALUES[fieldKey] || `Sample ${fieldLabel || fieldKey}`;
@@ -1258,6 +1294,15 @@
       } else if (p.type === "select") {
         const optionsHtml = p.options.map(o => `<option${o === state.value ? " selected" : ""}>${o}</option>`).join("");
         fieldHtml = `<select class="param-input" data-node="${id}" data-key="${p.key}">${optionsHtml}</select>`;
+      } else if (p.type === "workflowSelect") {
+        const others = workflows.filter(w => w.id !== currentWorkflowId);
+        if (!others.length) {
+          fieldHtml = `<select class="param-input" data-node="${id}" data-key="${p.key}" disabled><option value="">No other workflows yet</option></select>`;
+        } else {
+          if (!state.value || !others.some(w => w.id === state.value)) state.value = others[0].id; // keep state/DOM in sync
+          const optionsHtml = others.map(w => `<option value="${w.id}"${w.id === state.value ? " selected" : ""}>${w.name}</option>`).join("");
+          fieldHtml = `<select class="param-input" data-node="${id}" data-key="${p.key}">${optionsHtml}</select>`;
+        }
       } else {
         fieldHtml = `<input type="text" class="param-input" data-node="${id}" data-key="${p.key}" placeholder="${p.placeholder || ""}" value="${state.value || ""}" />`;
       }
@@ -1576,6 +1621,8 @@
   // workflowCanvasData[workflowId] = { nodes: [{id,type,x,y,sub,desc,params,credentialId}], edges: [[from,to,branch]] }
   const workflowCanvasData = {};
   let executionRuns = []; // persisted run history — newest first (declared here, ahead of loadPersistedState()'s call site, to avoid a TDZ error)
+  const tableStore = Object.create(null); // tableStore[tableName] = [{ id, ...fields }, ...] — the Table node's real record store (§10)
+  let tableRecordCounter = 0;
 
   function snapshotCurrentCanvasInto(store) {
     if (!currentWorkflowId) return;
@@ -1610,7 +1657,7 @@
 
   function persist() {
     snapshotCurrentCanvasInto(workflowCanvasData);
-    const state = { v: 1, workflows, currentWorkflowId, wfIdCounter, credIdCounter, workflowCanvasData, credentialStore, executionRuns };
+    const state = { v: 1, workflows, currentWorkflowId, wfIdCounter, credIdCounter, workflowCanvasData, credentialStore, executionRuns, tableStore, tableRecordCounter };
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
   }
   function schedulePersist() {
@@ -1635,6 +1682,9 @@
       Object.keys(credentialStore).forEach(k => delete credentialStore[k]);
       Object.assign(credentialStore, state.credentialStore || {});
       executionRuns = Array.isArray(state.executionRuns) ? state.executionRuns : [];
+      Object.keys(tableStore).forEach(k => delete tableStore[k]);
+      Object.assign(tableStore, state.tableStore || {});
+      tableRecordCounter = state.tableRecordCounter || 0;
       return true;
     } catch (e) { return false; }
   }
@@ -1834,7 +1884,7 @@
       body: (rp) => (rp.url ? `Mock ${rp.method || "GET"} response body for ${rp.url}` : undefined),
       status: () => "200 OK",
     },
-    mysql: { rows: (rp) => (rp.query ? `Mock result for: ${rp.query}` : undefined) },
+    mysql: { rows: (rp) => (rp.query ? JSON.stringify(["Row 1", "Row 2", "Row 3"]) : undefined) },
   };
 
   function deriveOutputValue(type, key, resolvedParams, inputJson, meta) {
@@ -1849,11 +1899,13 @@
   }
 
   // Kahn's algorithm — nodes with no incoming edge run first, then whatever they unblock.
-  function computeExecutionOrder() {
-    const ids = Object.keys(nodeData);
+  // Kahn's algorithm — nodes with no incoming edge run first, then whatever they unblock.
+  // Graph-parameterized for the same reason as getUpstreamOutputFieldsFor above.
+  function computeExecutionOrderFor(nodesById, edges) {
+    const ids = Object.keys(nodesById);
     const indegree = {};
     ids.forEach(id => { indegree[id] = 0; });
-    edgeList.forEach(e => { if (indegree[e.to] != null) indegree[e.to]++; });
+    edges.forEach(e => { if (indegree[e.to] != null) indegree[e.to]++; });
     const queue = ids.filter(id => indegree[id] === 0);
     const order = [];
     const visited = new Set();
@@ -1862,7 +1914,7 @@
       if (visited.has(id)) continue;
       visited.add(id);
       order.push(id);
-      edgeList.filter(e => e.from === id).forEach(e => {
+      edges.filter(e => e.from === id).forEach(e => {
         if (indegree[e.to] == null) return;
         indegree[e.to]--;
         if (indegree[e.to] === 0) queue.push(e.to);
@@ -1871,24 +1923,122 @@
     ids.forEach(id => { if (!visited.has(id)) order.push(id); }); // defensive: stray cycle, append the rest as-is
     return order;
   }
+  function computeExecutionOrder() { return computeExecutionOrderFor(nodeData, edgeList); }
 
-  function mockExecuteNode(id, upstreamItems) {
-    const data = nodeData[id];
+  /* ---------- Loops (§5.3) — Iterator explodes an array field into one item per element,
+     Aggregator (fed by an Iterator, directly or downstream) collects items back into one array.
+     Both fall naturally out of the item-array model already in place: an Iterator just returns
+     more than one item, and everything downstream already flows arrays of items through edges. */
+  function executeIterator(resolvedParams) {
+    const raw = resolvedParams.arrayField;
+    let arr = null;
+    if (Array.isArray(raw)) arr = raw;
+    else if (typeof raw === "string" && raw.trim()) {
+      try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) arr = parsed; } catch (e) { /* not JSON — fall through */ }
+      if (!arr) arr = raw.split(",").map(s => s.trim()).filter(Boolean);
+    }
+    if (!arr || !arr.length) arr = ["Item A", "Item B", "Item C"]; // honest placeholder when nothing resolvable yet
+    return arr.map((v, i) => ({ json: { item: v }, pairedItem: { item: i } }));
+  }
+  function executeAggregator(resolvedParams, upstreamItems) {
+    const fieldKey = (resolvedParams.fieldKey || "item").trim() || "item";
+    const values = upstreamItems.map(it => (it.json ? it.json[fieldKey] : undefined)).filter(v => v !== undefined);
+    return [{ json: { array: JSON.stringify(values) } }];
+  }
+
+  /* ---------- Table (§10) — a real, tiny persistent record store (Zapier Tables pattern),
+     not just another mock-labeled node: Create/Find/Update/Delete actually read and write it. */
+  function parseRecordFields(text) {
+    const fields = {};
+    (text || "").split("\n").forEach(line => {
+      const idx = line.indexOf(":");
+      if (idx === -1) return;
+      const k = line.slice(0, idx).trim();
+      const v = line.slice(idx + 1).trim();
+      if (k) fields[k] = v;
+    });
+    return fields;
+  }
+  function executeTableNode(resolvedParams) {
+    const tableName = (resolvedParams.tableName || "Untitled Table").trim() || "Untitled Table";
+    const rows = tableStore[tableName] || (tableStore[tableName] = []);
+    const fields = parseRecordFields(resolvedParams.recordData);
+    const op = resolvedParams.operation;
+    if (op === "Find Records") {
+      const keys = Object.keys(fields);
+      const matches = keys.length ? rows.filter(r => keys.every(k => String(r[k]) === String(fields[k]))) : rows.slice();
+      return [{ json: { record: JSON.stringify(matches), recordId: matches[0] ? matches[0].id : "" } }];
+    }
+    if (op === "Update Record") {
+      const rec = fields.id ? rows.find(r => r.id === fields.id) : rows[rows.length - 1];
+      if (rec) Object.assign(rec, fields);
+      return [{ json: { record: JSON.stringify(rec || {}), recordId: (rec && rec.id) || "" } }];
+    }
+    if (op === "Delete Record") {
+      const idx = fields.id ? rows.findIndex(r => r.id === fields.id) : rows.length - 1;
+      const removed = idx > -1 ? rows.splice(idx, 1)[0] : null;
+      return [{ json: { record: JSON.stringify(removed || {}), recordId: (removed && removed.id) || "" } }];
+    }
+    // Create Record (default)
+    tableRecordCounter += 1;
+    const rec = { id: "rec-" + tableRecordCounter, ...fields };
+    rows.push(rec);
+    return [{ json: { record: JSON.stringify(rec), recordId: rec.id } }];
+  }
+
+  /* ---------- Sub-workflows (§5.4) — Execute Workflow really re-runs the target's SAVED canvas
+     (workflowCanvasData), not the live one, so it works without switching the user off their
+     current workflow. `visitedWorkflows` guards against A→B→A circular sub-workflow chains. */
+  function executeSubWorkflow(resolvedParams, visitedWorkflows) {
+    const targetId = resolvedParams.targetWorkflowId;
+    if (!targetId) return [{ json: { output: "No sub-workflow selected" } }];
+    if (visitedWorkflows.has(targetId)) return [{ json: { output: "Skipped — circular sub-workflow reference" } }];
+    const wfMeta = workflows.find(w => w.id === targetId);
+    if (!wfMeta) return [{ json: { output: "Sub-workflow not found (it may have been deleted)" } }];
+    // targetId === currentWorkflowId is already caught by the visitedWorkflows check above, so
+    // by this point the target is always a DIFFERENT, already-saved workflow — safe to read
+    // straight from workflowCanvasData without touching the live canvas/DOM.
+    const store = workflowCanvasData[targetId];
+    if (!store || !store.nodes || !store.nodes.length) return [{ json: { output: `"${wfMeta.name}" has no nodes yet` } }];
+
+    const nodesById = {};
+    store.nodes.forEach(n => { nodesById[n.id] = n; });
+    const edges = store.edges.map(e => Array.isArray(e) ? { from: e[0], to: e[1], branch: e[2] || null } : e);
+
+    const { order, runtimeOutputs } = runWorkflowMockFor(nodesById, edges, new Set([...visitedWorkflows, targetId]));
+    const outputNodeId = order.find(id => nodesById[id] && nodesById[id].type === "output");
+    const subOutput = outputNodeId && runtimeOutputs[outputNodeId][0] ? runtimeOutputs[outputNodeId][0].json.value : undefined;
+
+    if (resolvedParams.mode === "Fire and forget") {
+      return [{ json: { output: `Triggered "${wfMeta.name}" (fire and forget) — ${order.length} node${order.length === 1 ? "" : "s"} queued` } }];
+    }
+    return [{ json: { output: subOutput !== undefined ? subOutput : `Ran "${wfMeta.name}" — ${order.length} node${order.length === 1 ? "" : "s"}, no Output node found` } }];
+  }
+
+  // Graph-parameterized node executor — nodesById/edges/runtimeOutputs/visitedWorkflows let a
+  // sub-workflow run against SAVED data (workflowCanvasData) instead of the live canvas globals.
+  function mockExecuteNodeFor(id, upstreamItems, nodesById, edges, runtimeOutputs, visitedWorkflows) {
+    const data = nodesById[id];
     const meta = nodeTypeLibrary[data.type];
-    const upstream = getUpstreamOutputFields(id);
+    const upstream = getUpstreamOutputFieldsFor(id, nodesById, edges);
     const inputJson = (upstreamItems[0] && upstreamItems[0].json) || {};
 
     const resolvedParams = {};
     Object.entries(data.params || {}).forEach(([key, p]) => {
       resolvedParams[key] = p.mapped
         ? evaluateExpression(p.value, upstream, (ref) => {
-            const out = lastRunOutputs[ref.nodeId];
+            const out = runtimeOutputs[ref.nodeId];
             const item = out && out[0];
             const val = item && item.json ? item.json[ref.fieldKey] : undefined;
             return val !== undefined ? val : sampleValueFor(ref.fieldKey, ref.fieldLabel);
           })
         : p.value;
     });
+
+    if (data.type === "iterator") return executeIterator(resolvedParams);
+    if (data.type === "aggregator") return executeAggregator(resolvedParams, upstreamItems);
+    if (data.type === "table") return executeTableNode(resolvedParams);
+    if (data.type === "executeWorkflow") return executeSubWorkflow(resolvedParams, visitedWorkflows);
 
     if (!meta.outputFields || !meta.outputFields.length) {
       // Router/Filter/Delay-style nodes don't declare an output shape of their own — Make.com
@@ -1900,16 +2050,24 @@
     meta.outputFields.forEach(f => { json[f.key] = deriveOutputValue(data.type, f.key, resolvedParams, inputJson, meta); });
     return [{ json, pairedItem: { item: 0 } }];
   }
+  function runWorkflowMockFor(nodesById, edges, visitedWorkflows) {
+    const order = computeExecutionOrderFor(nodesById, edges);
+    const runtimeOutputs = Object.create(null);
+    order.forEach(id => {
+      const data = nodesById[id];
+      if (!data) return;
+      const incoming = edges.filter(e => e.to === id);
+      const upstreamItems = incoming.length ? incoming.flatMap(e => runtimeOutputs[e.from] || []) : [];
+      runtimeOutputs[id] = (data.pinnedData && data.pinnedData.length)
+        ? data.pinnedData
+        : mockExecuteNodeFor(id, upstreamItems, nodesById, edges, runtimeOutputs, visitedWorkflows);
+    });
+    return { order, runtimeOutputs };
+  }
 
   function runWorkflowMock() {
-    const order = computeExecutionOrder();
-    order.forEach(id => {
-      const data = nodeData[id];
-      if (!data) return;
-      const incoming = edgeList.filter(e => e.to === id);
-      const upstreamItems = incoming.length ? incoming.flatMap(e => lastRunOutputs[e.from] || []) : [];
-      lastRunOutputs[id] = (data.pinnedData && data.pinnedData.length) ? data.pinnedData : mockExecuteNode(id, upstreamItems);
-    });
+    const { order, runtimeOutputs } = runWorkflowMockFor(nodeData, edgeList, new Set([currentWorkflowId]));
+    Object.assign(lastRunOutputs, runtimeOutputs);
     return order;
   }
 

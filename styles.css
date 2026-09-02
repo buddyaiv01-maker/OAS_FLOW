@@ -612,6 +612,10 @@ body::before {
 .badge-output   { background: rgba(100,116,139,0.20); color: #a3adba; }
 .badge-printer  { background: rgba(46,139,146,0.18); color: #5fc7cf; }
 .badge-errortrigger { background: rgba(229,72,77,0.16); color: var(--danger-soft); }
+.badge-iterator { background: rgba(58,189,138,0.16); color: #5fd6a4; }
+.badge-aggregator { background: rgba(46,139,146,0.18); color: #5fc7cf; }
+.badge-executeworkflow { background: rgba(87,23,125,0.20); color: #b788d9; }
+.badge-table { background: rgba(15,157,88,0.18); color: #4fd88a; }
 
 /* Brand nodes: solid brand color + real logo mark in white, like the reference (Gmail = solid red circle, white glyph) */
 .badge-slack      { background: #4A154B; color: #ffffff; }
