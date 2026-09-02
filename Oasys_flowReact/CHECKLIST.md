@@ -2,7 +2,9 @@
 
 Use this as a functional acceptance checklist. UI styling is intentionally excluded from redesign: the fixed UI must remain unchanged while every functional item below is implemented and verified.
 
-Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off here as the React port ([Oasys_flowReact](.)) reaches parity — this is the yardstick for "done," not the visual UI matching `legacy_UI`.
+Converted from `make_n8n_functionality_clone_checklist.pdf`, then trimmed to single-user, browser-only scope. **Oasys Flow runs entirely in one browser tab — no server, no database, no login system, no real multiple users.** Everything below is achievable as a client-side app; anything that inherently needed a real always-on server, a real identity/auth provider, or more than one real user account was removed rather than left unchecked forever. Five whole sections were cut outright: Collaboration, RBAC / Security, API / CLI, Multi-Tenancy / Enterprise, and Platform Admin — all of them assume a company running the app for many customers, which this isn't. Items like "Encrypted secret storage," "OAuth authorization," and "workflow data store" stay in, but with a mental asterisk: they're client-side approximations (e.g. credentials sit in `localStorage`, not behind a real vault), not enterprise-grade guarantees.
+
+If a later decision brings a real backend into scope, the removed sections are still sitting in git history (see the previous version of this file) and can be restored.
 
 ## Master coverage summary
 
@@ -16,32 +18,29 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 | Data Mapping & Expressions | 17 | Not started |
 | Built-in Transformers & Tools | 16 | Not started |
 | HTTP / REST / API | 17 | Not started |
-| Webhooks | 13 | Not started |
-| Databases & Storage | 16 | Not started |
+| Webhooks | 12 | Not started |
+| Databases & Storage | 15 | Not started |
 | Files & Binary Data | 10 | Not started |
 | Code Execution | 11 | Not started |
-| Credentials & Connections | 14 | Not started |
-| Execution Engine | 20 | Not started |
+| Credentials & Connections | 12 | Not started |
+| Execution Engine | 11 | Not started |
 | Error Handling | 14 | Not started |
 | Execution History & Debugging | 14 | Not started |
 | Scheduling & Control | 11 | Not started |
 | Integrations / App Ecosystem | 14 | Not started |
-| Custom App / Connector Builder | 13 | Not started |
+| Custom App / Connector Builder | 12 | Not started |
 | AI / LLM Functionality | 15 | Not started |
 | AI Agents | 14 | Not started |
-| MCP | 9 | Not started |
-| Templates | 9 | Not started |
-| Collaboration | 11 | Not started |
-| RBAC / Security | 15 | Not started |
-| Monitoring / Observability | 14 | Not started |
-| Alerts / Notifications | 8 | Not started |
-| Versioning / Deployment | 12 | Not started |
-| API / CLI | 11 | Not started |
-| Multi-Tenancy / Enterprise | 14 | Not started |
-| Data Governance | 8 | Not started |
+| MCP | 6 | Not started |
+| Templates | 8 | Not started |
+| Monitoring / Observability | 11 | Not started |
+| Alerts / Notifications | 7 | Not started |
+| Versioning / Deployment | 8 | Not started |
+| Data Governance | 5 | Not started |
 | Testing / Quality | 9 | Not started |
-| Performance / Scale | 13 | Not started |
-| Platform Admin | 13 | Not started |
+| Performance / Scale | 7 | Not started |
+
+**339 items** across 29 sections (down from 450+ across 34 — Collaboration, RBAC/Security, API/CLI, Multi-Tenancy/Enterprise and Platform Admin removed in full; every remaining section had its server/multi-user items stripped).
 
 ## A. Product scope & UI lock
 
@@ -193,7 +192,6 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 - [ ] Webhook test listener.
 - [ ] Webhook execution logs.
 - [ ] Webhook replay.
-- [ ] Queueing for burst traffic.
 - [ ] Webhook enable/disable.
 
 ## J. Databases & storage
@@ -209,7 +207,6 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 - [ ] CRUD operations.
 - [ ] Transactions where supported.
 - [ ] Batch operations.
-- [ ] Connection pooling.
 - [ ] Workflow data store/key-value store.
 - [ ] Persistent state between executions.
 - [ ] TTL/expiration.
@@ -255,8 +252,6 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 - [ ] Database credentials.
 - [ ] Custom authentication.
 - [ ] Encrypted secret storage.
-- [ ] Credential sharing controls.
-- [ ] Credential access permissions.
 - [ ] Credential expiration/rotation support.
 
 ## N. Execution engine
@@ -265,22 +260,13 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 - [ ] Resolve node dependencies.
 - [ ] Sequential execution.
 - [ ] Parallel execution.
-- [ ] Queue-based execution.
-- [ ] Worker execution.
 - [ ] Execution state persistence.
 - [ ] Pause/resume.
 - [ ] Cancellation.
 - [ ] Timeouts.
 - [ ] Retries.
 - [ ] Backoff.
-- [ ] Concurrency limits.
-- [ ] Per-workflow execution limits.
-- [ ] Per-user/tenant limits.
-- [ ] Rate limiting.
 - [ ] Idempotency/deduplication.
-- [ ] Crash recovery.
-- [ ] Graceful worker failure recovery.
-- [ ] Dead-letter/failed execution handling.
 
 ## O. Error handling
 
@@ -361,7 +347,6 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 - [ ] Define response mapping.
 - [ ] Test custom app.
 - [ ] Version custom app.
-- [ ] Publish/share custom app.
 
 ## T. AI / LLM functionality
 
@@ -401,9 +386,6 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 ## V. MCP
 
 - [ ] MCP client.
-- [ ] MCP server.
-- [ ] Expose workflows as tools.
-- [ ] Expose approved workflow actions as tools.
 - [ ] Connect external MCP servers.
 - [ ] MCP authentication.
 - [ ] Tool discovery.
@@ -418,52 +400,16 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 - [ ] Template preview.
 - [ ] Clone template.
 - [ ] Create template.
-- [ ] Share template.
 - [ ] Template versioning.
 - [ ] Template variables/setup wizard.
 
-## X. Collaboration
-
-- [ ] Workspaces/organizations.
-- [ ] Users.
-- [ ] Teams.
-- [ ] Invite members.
-- [ ] Roles.
-- [ ] Workflow ownership.
-- [ ] Shared workflows.
-- [ ] Comments/notes.
-- [ ] Activity history.
-- [ ] Permission management.
-- [ ] Team-level credentials/connections.
-
-## Y. RBAC / security
-
-- [ ] Owner/admin/editor/operator/viewer roles.
-- [ ] Workflow permissions.
-- [ ] Credential permissions.
-- [ ] Execution/log permissions.
-- [ ] Integration permissions.
-- [ ] API permissions.
-- [ ] Secret isolation.
-- [ ] Encryption at rest.
-- [ ] Encryption in transit.
-- [ ] Audit logs.
-- [ ] SSO/OIDC/SAML where required.
-- [ ] MFA support.
-- [ ] API keys.
-- [ ] Session/security controls.
-- [ ] IP/network restrictions where required.
-
-## Z. Monitoring / observability
+## X. Monitoring / observability
 
 - [ ] Execution dashboard.
 - [ ] Success/failure metrics.
 - [ ] Execution duration.
 - [ ] Workflow usage.
 - [ ] Node usage.
-- [ ] API usage.
-- [ ] Queue depth.
-- [ ] Worker health.
 - [ ] Error rate.
 - [ ] Logs.
 - [ ] Searchable logs.
@@ -471,9 +417,8 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 - [ ] Analytics dashboards.
 - [ ] Operational overview across workflows.
 
-## AA. Alerts / notifications
+## Y. Alerts / notifications
 
-- [ ] Email notifications.
 - [ ] Webhook notifications.
 - [ ] Slack/Teams/Discord-style notifications through integrations.
 - [ ] Failure alerts.
@@ -482,7 +427,7 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 - [ ] Approval notifications.
 - [ ] Custom alert conditions.
 
-## AB. Versioning / deployment
+## Z. Versioning / deployment
 
 - [ ] Workflow drafts.
 - [ ] Published/live workflow.
@@ -491,55 +436,17 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 - [ ] Compare versions.
 - [ ] Rollback.
 - [ ] Import/export workflow JSON.
-- [ ] Development/staging/production environments.
 - [ ] Environment variables.
-- [ ] Environment-specific credentials.
-- [ ] Deployment/promotion.
-- [ ] CI/CD integration.
 
-## AC. API / CLI
-
-- [ ] Workflow CRUD API.
-- [ ] Workflow execution API.
-- [ ] Execution history API.
-- [ ] Webhook API.
-- [ ] Credential API.
-- [ ] Template API.
-- [ ] User/team API.
-- [ ] Integration API.
-- [ ] API authentication.
-- [ ] API rate limits.
-- [ ] CLI for workflow operations where applicable.
-
-## AD. Multi-tenancy / enterprise
-
-- [ ] Tenant/workspace isolation.
-- [ ] Tenant-specific credentials.
-- [ ] Tenant-specific executions.
-- [ ] Tenant-specific data stores.
-- [ ] Tenant-level quotas.
-- [ ] Tenant-level rate limits.
-- [ ] Resource isolation.
-- [ ] Worker scaling.
-- [ ] High availability.
-- [ ] Backups.
-- [ ] Disaster recovery.
-- [ ] Audit/compliance controls.
-- [ ] On-prem/self-hosted deployment option.
-- [ ] Private networking/on-prem agent where required.
-
-## AE. Data governance
+## AA. Data governance
 
 - [ ] Retention policies.
 - [ ] Execution-data retention.
 - [ ] Log retention.
 - [ ] Credential secret handling.
 - [ ] PII-sensitive data controls.
-- [ ] Export/delete tenant data.
-- [ ] Audit trail.
-- [ ] Access logging.
 
-## AF. Testing / quality
+## AB. Testing / quality
 
 - [ ] Unit-testable node execution.
 - [ ] Workflow validation.
@@ -551,56 +458,31 @@ Converted from `make_n8n_functionality_clone_checklist.pdf`. Check items off her
 - [ ] Regression tests for workflow versions.
 - [ ] Integration tests.
 
-## AG. Performance / scale
+## AC. Performance / scale
 
-- [ ] Horizontal workers.
-- [ ] Queue-based scaling.
 - [ ] Parallel node execution.
-- [ ] Execution concurrency limits.
 - [ ] Per-integration rate limiting.
-- [ ] Backpressure.
 - [ ] Large payload handling.
 - [ ] Streaming where applicable.
 - [ ] Pagination.
 - [ ] Batching.
 - [ ] Caching.
-- [ ] Connection pooling.
-- [ ] Worker autoscaling.
-
-## AH. Platform admin
-
-- [ ] System settings.
-- [ ] Workspace settings.
-- [ ] User management.
-- [ ] Team management.
-- [ ] Integration management.
-- [ ] Credential policies.
-- [ ] Execution policies.
-- [ ] Quota/usage dashboard.
-- [ ] Feature flags.
-- [ ] System health.
-- [ ] Worker health.
-- [ ] Queue health.
-- [ ] Audit log viewer.
 
 ## Final acceptance gate
 
-Do not mark the clone complete merely because the UI looks similar. A feature is complete only when it can be configured, executed, observed, error-handled, persisted and secured as applicable.
+Do not mark the clone complete merely because the UI looks similar. A feature is complete only when it can be configured, executed, observed, error-handled and persisted as applicable.
 
 - [ ] Every listed functional requirement has been implemented or explicitly marked out-of-scope.
 - [ ] Existing fixed UI has not been changed except where required to expose functionality.
 - [ ] Every trigger can actually start an execution.
-- [ ] Every action/module can execute against real external services.
+- [ ] Every action/module can execute against real external services (where the browser's own network access allows it).
 - [ ] Data can be mapped between nodes and expressions evaluate correctly.
 - [ ] Branching, loops, merging, aggregation and filtering work with real execution data.
 - [ ] Failed executions can be diagnosed and, where supported, retried/resumed.
-- [ ] Credentials are securely stored and never exposed in execution output/logs.
-- [ ] Workflow state survives application restarts.
-- [ ] Concurrent executions do not corrupt workflow state.
+- [ ] Credentials are stored client-side and never exposed in execution output/logs.
+- [ ] Workflow state survives a page refresh/browser restart (localStorage).
 - [ ] Execution history accurately reflects each node's status, input/output and errors.
 - [ ] Import/export preserves workflow behavior.
-- [ ] Permissions prevent unauthorized workflow/credential/execution access.
-- [ ] Performance/load tests pass for the intended deployment scale.
 - [ ] Real-world end-to-end scenarios have been tested, not just mocked node tests.
 
-Reference basis: current Make product/integration documentation and current n8n feature documentation. This checklist is intentionally broader than a UI checklist and focuses on functional parity.
+Reference basis: current Make product/integration documentation and current n8n feature documentation, trimmed to what a single-user, no-backend, browser-only app can actually deliver.
