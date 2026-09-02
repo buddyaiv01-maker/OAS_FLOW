@@ -24,7 +24,7 @@ const QUICK_CATS = [
 // Port of legacy_UI/index.html's <div class="floatbar-dock">. The add-node popup is real; most
 // of the rest (undo/redo/auto-align/hints/history) are still visual-only, later ports.
 export default function FloatbarDock() {
-  const { addNode } = useWorkflow();
+  const { addNode, executeWorkflow } = useWorkflow();
   const [popupOpen, setPopupOpen] = useState(false);
 
   useEffect(() => {
@@ -45,7 +45,7 @@ export default function FloatbarDock() {
     <div className="floatbar-dock">
       <div className="floatbar" style={{ position: "relative" }}>
         <div className="floatbar-group floatbar-run">
-          <button className="floatbar-run-btn">
+          <button className="floatbar-run-btn" onClick={executeWorkflow}>
             <svg viewBox="0 0 24 24" fill="none"><path d="M7 5v14l12-7Z" fill="currentColor" /></svg>
             Run once
           </button>

@@ -175,6 +175,29 @@ export const nodeTypeLibrary = {
 
 export const NODE_CATEGORIES = ["trigger", "logic", "integrations", "ai"];
 
+// Graph-parameterized (nodesById/edges passed explicitly, not read from a closure) so the same
+// function works for the live canvas and, later, a saved-but-not-open workflow's graph.
+export function getUpstreamOutputFieldsFor(nodeId, nodesById, edges) {
+  const visited = new Set();
+  const queue = edges.filter((e) => e.to === nodeId).map((e) => e.from);
+  const options = [];
+  while (queue.length) {
+    const id = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const node = nodesById[id];
+    const meta = node && nodeTypeLibrary[node.type];
+    if (meta && meta.outputFields) {
+      meta.outputFields.forEach((f) => options.push({
+        nodeId: id, nodeName: (node && node.sub) || meta.label, fieldKey: f.key, fieldLabel: f.label,
+        color: meta.color || "#F79106",
+      }));
+    }
+    edges.filter((e) => e.to === id).forEach((e) => queue.push(e.from));
+  }
+  return options;
+}
+
 // A node's output branches are its type's static branches (Router/If-Else) plus, per instance, a
 // synthetic red "Error" branch when Settings > On Error is "use error output" (§6 of the build doc).
 // A plain node (no static branches) that gains an error branch must NOT lose its normal output in

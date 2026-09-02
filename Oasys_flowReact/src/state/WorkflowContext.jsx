@@ -1,6 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { nodeTypeLibrary } from "../lib/nodeTypeLibrary.js";
+import { nodeTypeLibrary, getUpstreamOutputFieldsFor } from "../lib/nodeTypeLibrary.js";
 import { loadPersistedState, savePersistedState } from "../lib/persistence.js";
+import { runWorkflowMockFor } from "../lib/executionEngine.js";
+
+const MAX_EXECUTION_RUNS = 50;
 
 // Port target for legacy_UI/app.js's global closure state (nodeData/edgeList/workflows/
 // workflowCanvasData), now React state. The CURRENTLY open workflow's nodes/edges live directly
@@ -34,6 +37,8 @@ export function WorkflowProvider({ children }) {
   });
   const [edges, setEdges] = useState(initialCanvas.edges);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [lastRunOutputs, setLastRunOutputs] = useState({}); // nodeId -> items[], ephemeral (not persisted)
+  const [executionRuns, setExecutionRuns] = useState(initial.executionRuns || []); // newest first
 
   const nodeCounter = useRef(0);
   const wfCounter = useRef(0);
@@ -45,10 +50,10 @@ export function WorkflowProvider({ children }) {
         ...workflowCanvasData,
         [currentWorkflowId]: { nodes: Object.values(nodesById), edges },
       };
-      savePersistedState({ workflows, currentWorkflowId, workflowCanvasData: snapshot });
+      savePersistedState({ workflows, currentWorkflowId, workflowCanvasData: snapshot, executionRuns });
     }, 400);
     return () => clearTimeout(timer);
-  }, [workflows, currentWorkflowId, workflowCanvasData, nodesById, edges]);
+  }, [workflows, currentWorkflowId, workflowCanvasData, nodesById, edges, executionRuns]);
 
   function snapshotCurrentInto(store) {
     return { ...store, [currentWorkflowId]: { nodes: Object.values(nodesById), edges } };
@@ -184,27 +189,8 @@ export function WorkflowProvider({ children }) {
     });
   }
 
-  // BFS backward through edges collecting every ancestor's outputFields — what the field-picker
-  // and expression evaluator resolve `{{NodeName.field}}` references against.
   function getUpstreamOutputFields(nodeId) {
-    const visited = new Set();
-    const queue = edges.filter((e) => e.to === nodeId).map((e) => e.from);
-    const options = [];
-    while (queue.length) {
-      const id = queue.shift();
-      if (visited.has(id)) continue;
-      visited.add(id);
-      const node = nodesById[id];
-      const meta = node && nodeTypeLibrary[node.type];
-      if (meta && meta.outputFields) {
-        meta.outputFields.forEach((f) => options.push({
-          nodeId: id, nodeName: (node && node.sub) || meta.label, fieldKey: f.key, fieldLabel: f.label,
-          color: meta.color || "#F79106",
-        }));
-      }
-      edges.filter((e) => e.to === id).forEach((e) => queue.push(e.from));
-    }
-    return options;
+    return getUpstreamOutputFieldsFor(nodeId, nodesById, edges);
   }
 
   function deleteNode(id) {
@@ -229,6 +215,51 @@ export function WorkflowProvider({ children }) {
     setEdges((prev) => prev.filter((e) => !(e.from === from && e.to === to && (e.branch || null) === (branch || null))));
   }
 
+  // Runs the mock execution engine over the live canvas (§2/§3 of the build doc). Always
+  // "succeeds" — there's no real backend to genuinely fail against yet, so fabricating random
+  // failures would be dishonest rather than useful; the point right now is proving data actually
+  // flows end to end through mapped fields, not simulating infra flakiness.
+  function executeWorkflow() {
+    if (!Object.keys(nodesById).length) return null;
+    const { order, runtimeOutputs } = runWorkflowMockFor(nodesById, edges);
+    setLastRunOutputs(runtimeOutputs);
+    const wf = workflows.find((w) => w.id === currentWorkflowId);
+    const nodeResults = order.map((id) => {
+      const node = nodesById[id];
+      const meta = node && nodeTypeLibrary[node.type];
+      return {
+        id,
+        label: (node && node.sub) || id,
+        badge: (meta && meta.badge) || "",
+        output: (runtimeOutputs[id] && runtimeOutputs[id][0] && runtimeOutputs[id][0].json) || {},
+      };
+    });
+    setExecutionRuns((prev) => {
+      const run = {
+        id: "run-" + Date.now(),
+        workflowId: currentWorkflowId,
+        workflowName: (wf && wf.name) || "Untitled Workflow",
+        startedAt: new Date().toISOString(),
+        status: "success",
+        nodeCount: order.length,
+        nodeResults,
+      };
+      return [run, ...prev].slice(0, MAX_EXECUTION_RUNS);
+    });
+    return order;
+  }
+
+  function pinNodeData(id) {
+    const items = lastRunOutputs[id];
+    if (!items || !items.length) return false;
+    setNodesById((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], pinnedData: items } } : prev));
+    return true;
+  }
+
+  function unpinNodeData(id) {
+    setNodesById((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], pinnedData: null } } : prev));
+  }
+
   // Node count for any workflow (not just the current one) — the current workflow's live
   // nodesById is more up to date than its stale snapshot still sitting in workflowCanvasData.
   function nodeCountFor(id) {
@@ -242,7 +273,8 @@ export function WorkflowProvider({ children }) {
     setSelectedNodeId, selectWorkflow, createWorkflow, deleteWorkflow, renameWorkflow,
     addNode, moveNode, renameNode, updateNodeDesc, updateNodeParam, setParamMapped, updateNodeSettings, deleteNode,
     connectNodes, removeEdge, getUpstreamOutputFields, nodeCountFor,
-  }), [workflows, currentWorkflowId, nodesById, edges, selectedNodeId, workflowCanvasData]);
+    executeWorkflow, lastRunOutputs, executionRuns, pinNodeData, unpinNodeData,
+  }), [workflows, currentWorkflowId, nodesById, edges, selectedNodeId, workflowCanvasData, lastRunOutputs, executionRuns]);
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>;
 }

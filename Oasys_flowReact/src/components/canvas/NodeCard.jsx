@@ -19,7 +19,7 @@ export function branchOffset(idx, n) {
 // starts a drag (or opens the node modal on a plain click, distinguished by movement threshold).
 // Output stubs are branch-aware — Router/If-Else nodes and any node with "use error output" (§6)
 // on get one stub per branch, offset vertically like the legacy canvas.
-export default function NodeCard({ node, onMove, onClick, onStartConnect }) {
+export default function NodeCard({ node, onMove, onClick, onStartConnect, hasRun }) {
   const meta = nodeTypeLibrary[node.type];
   const dragState = useRef(null);
 
@@ -65,6 +65,16 @@ export default function NodeCard({ node, onMove, onClick, onStartConnect }) {
         <span className="node-name">{node.sub}</span>
       </div>
       <span className="node-connector-receiver" style={{ left: -6, top: NODE_H / 2 - 6 }} />
+      {hasRun && (
+        <span className="node-run-badge" title="Ran successfully on the last Execute">
+          <svg viewBox="0 0 24 24" fill="none"><path d="m5 12 5 5L19 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </span>
+      )}
+      {node.pinnedData && (
+        <span className="node-pin-badge" title="Output pinned — downstream nodes use this instead of re-running">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M9 4h6M9.5 4l.5 6-2.5 3v2h9v-2l-2.5-3 .5-6" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /></svg>
+        </span>
+      )}
       {stubs.map((branch, idx) => {
         const offset = stubs.length > 1 ? branchOffset(idx, stubs.length) : 0;
         const isError = branch && branch.isError;

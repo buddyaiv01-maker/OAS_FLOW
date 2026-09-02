@@ -7,7 +7,7 @@ import EdgeLayer from "./EdgeLayer.jsx";
 // Faithful port of legacy_UI's <section class="canvas-wrap"> — now with real node rendering,
 // drag-to-move, and drag-to-connect. Pan/zoom/lock and the field-mapping engine are still TODO.
 export default function Canvas() {
-  const { nodesById, edges, moveNode, connectNodes, setSelectedNodeId } = useWorkflow();
+  const { nodesById, edges, moveNode, connectNodes, setSelectedNodeId, lastRunOutputs } = useWorkflow();
   const canvasInnerRef = useRef(null);
   const [connecting, setConnecting] = useState(null); // { from, x, y }
 
@@ -76,6 +76,7 @@ export default function Canvas() {
               onMove={moveNode}
               onClick={setSelectedNodeId}
               onStartConnect={handleStartConnect}
+              hasRun={!!lastRunOutputs[node.id]}
             />
           ))}
 

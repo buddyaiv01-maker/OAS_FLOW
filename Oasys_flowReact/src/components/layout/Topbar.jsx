@@ -5,7 +5,7 @@ import { useWorkflow } from "../../state/WorkflowContext.jsx";
 // active-switch and the export/import menu are all still wired to nothing — UI shell only.
 export default function Topbar() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const { workflows, currentWorkflowId, renameWorkflow } = useWorkflow();
+  const { workflows, currentWorkflowId, renameWorkflow, executeWorkflow } = useWorkflow();
   const wf = workflows.find((w) => w.id === currentWorkflowId);
 
   return (
@@ -34,7 +34,7 @@ export default function Topbar() {
           <svg viewBox="0 0 24 24" fill="none"><path d="m16 7 5 5-5 5M21 12H10A6 6 0 0 0 10 24h1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
           Redo
         </button>
-        <button className="run-btn">
+        <button className="run-btn" onClick={executeWorkflow}>
           <svg viewBox="0 0 24 24" fill="none"><path d="M7 5v14l12-7Z" fill="currentColor" /></svg>
           Execute
         </button>

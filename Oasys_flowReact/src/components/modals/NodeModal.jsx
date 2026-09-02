@@ -75,6 +75,7 @@ export default function NodeModal() {
   const {
     nodesById, selectedNodeId, setSelectedNodeId, renameNode, updateNodeDesc,
     updateNodeParam, setParamMapped, updateNodeSettings, deleteNode, getUpstreamOutputFields,
+    lastRunOutputs, pinNodeData, unpinNodeData,
   } = useWorkflow();
   const [tab, setTab] = useState("params");
   const [picker, setPicker] = useState(null); // { key, style }
@@ -144,6 +145,14 @@ export default function NodeModal() {
             <span className="node-modal-sub">{meta.label}</span>
           </div>
           <div className="node-modal-head-actions">
+            <button
+              id="modalPinBtn"
+              className={"icon-btn" + (node.pinnedData ? " is-active" : "")}
+              title="Pin this node's last run output so downstream nodes test against it instead of re-running"
+              onClick={() => (node.pinnedData ? unpinNodeData(node.id) : pinNodeData(node.id))}
+            >
+              <svg viewBox="0 0 24 24" fill="none"><path d="M9 4h6M9.5 4l.5 6-2.5 3v2h9v-2l-2.5-3 .5-6" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M12 15v5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+            </button>
             <button className="icon-btn" title="Close" onClick={close}>
               <svg viewBox="0 0 24 24" fill="none"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
             </button>
@@ -176,6 +185,17 @@ export default function NodeModal() {
                 <span>Description</span>
                 <textarea rows={2} value={node.desc} onChange={(e) => updateNodeDesc(node.id, e.target.value)} />
               </label>
+              {(() => {
+                const items = node.pinnedData || lastRunOutputs[node.id];
+                if (!items || !items.length) return null;
+                const label = (node.pinnedData ? "Pinned output" : "Last run output") + (items.length > 1 ? ` (${items.length} items)` : "");
+                return (
+                  <div className="node-run-output">
+                    <span className="node-run-output-label">{label}</span>
+                    <pre>{JSON.stringify(items[0].json, null, 2)}</pre>
+                  </div>
+                );
+              })()}
             </div>
           )}
           {tab === "settings" && (
