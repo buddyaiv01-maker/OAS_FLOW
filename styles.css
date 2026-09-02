@@ -605,6 +605,8 @@ body::before {
 .badge-ai       { background: linear-gradient(135deg, rgba(247,145,6,0.22), rgba(87,23,125,0.28)); color: #f0c988; }
 .badge-delay    { background: rgba(255,255,255,0.08); color: var(--text-mid); }
 .badge-instant  { background: rgba(247,145,6,0.20); color: var(--orange-soft); }
+.badge-chat     { background: rgba(54,96,183,0.18); color: var(--blue-soft); }
+.badge-output   { background: rgba(100,116,139,0.20); color: #a3adba; }
 .badge-printer  { background: rgba(46,139,146,0.18); color: #5fc7cf; }
 
 /* Brand nodes: solid brand color + real logo mark in white, like the reference (Gmail = solid red circle, white glyph) */
@@ -1334,6 +1336,145 @@ body::before {
 .conn-ollama-status { font-size: 11.5px; color: var(--text-low); }
 .conn-ollama-status.is-ok { color: #5fd6a4; }
 .conn-ollama-status.is-error { color: #f28b8b; }
+
+/* Node parameter mapping — "Map" toggle to pull a field from an upstream node's output */
+.param-field { position: relative; padding-left: 12px; margin-left: -12px; border-left: 2px solid transparent; transition: border-color .15s ease; }
+.param-field.is-mapped { border-left-color: var(--orange); }
+.param-field-head { display: flex; align-items: center; justify-content: space-between; }
+.param-field-head > span { font-size: 11.5px; font-weight: 600; color: var(--text-mid); letter-spacing: 0.01em; }
+.param-field-head .req { color: #ef7a6c; margin-left: 2px; }
+.param-map-row { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.param-map-label { font-size: 11px; color: var(--text-low); }
+.param-map-toggle {
+  width: 28px; height: 16px; border-radius: 999px; border: none; cursor: pointer;
+  background: var(--border); position: relative; padding: 0; flex-shrink: 0;
+  transition: background .18s ease;
+}
+.param-map-toggle .knob {
+  position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--panel-solid); transition: transform .18s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+.param-map-toggle.is-on { background: linear-gradient(90deg, var(--orange), var(--purple)); }
+.param-map-toggle.is-on .knob { transform: translateX(12px); background: white; }
+.param-mapped-wrap { display: flex; gap: 6px; }
+.param-mapped-input {
+  flex: 1; min-width: 0;
+  background: rgba(247,145,6,0.08) !important; border: 1px solid rgba(247,145,6,0.35) !important;
+}
+.param-mapped-input:focus { border-color: var(--orange) !important; }
+.param-mapped-insert-btn {
+  width: 36px; flex-shrink: 0;
+  background: rgba(247,145,6,0.14); border: 1px solid rgba(247,145,6,0.35); border-radius: var(--radius-sm);
+  color: var(--orange-soft); cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.param-mapped-insert-btn svg { width: 15px; height: 15px; }
+.param-mapped-insert-btn:hover { background: rgba(247,145,6,0.22); }
+
+.param-preview {
+  margin: -4px 0 0;
+  font-size: 11.5px;
+  color: var(--text-low);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.param-preview span { color: var(--text-mid); }
+
+.field-picker-functions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.field-picker-functions-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-low);
+  margin-right: 2px;
+}
+.field-picker-functions button {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.field-picker-functions button:hover { background: var(--bg-1); color: var(--text-hi); border-color: rgba(247,145,6,0.35); }
+
+/* Floating field picker — click chips to insert an upstream node's output field */
+.field-picker {
+  position: fixed;
+  z-index: 110;
+  width: 280px;
+  max-height: 320px;
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 30px 70px -24px rgba(0,0,0,0.5);
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+.field-picker.is-open { display: flex; }
+.field-picker-search {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.field-picker-search svg { width: 14px; height: 14px; color: var(--text-low); flex-shrink: 0; }
+.field-picker-search input {
+  background: none; border: none; outline: none; color: var(--text-hi);
+  font-family: var(--font-body); font-size: 13px; width: 100%;
+}
+.field-picker-list { overflow-y: auto; padding: 8px; }
+.field-picker-group { margin-bottom: 12px; }
+.field-picker-group:last-child { margin-bottom: 0; }
+.field-picker-group-head {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11.5px; font-weight: 600; color: var(--text-mid); margin-bottom: 7px; padding: 0 2px;
+}
+.field-picker-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.field-picker-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.field-picker-chip {
+  border: none; border-radius: 6px; padding: 5px 9px;
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; color: #ffffff;
+  cursor: pointer; opacity: 0.88; transition: opacity .12s ease, transform .12s ease;
+}
+.field-picker-chip:hover { opacity: 1; transform: translateY(-1px); }
+.field-picker-empty { font-size: 12px; color: var(--text-low); padding: 10px 6px; line-height: 1.5; margin: 0; }
+
+/* Topbar "More" dropdown */
+.more-menu-wrap { position: relative; }
+.more-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  min-width: 190px;
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 24px 60px -20px rgba(0,0,0,0.5);
+  padding: 6px;
+  display: none;
+  flex-direction: column;
+  gap: 1px;
+}
+.more-menu.is-open { display: flex; }
+.more-menu-item {
+  display: flex; align-items: center; gap: 10px;
+  background: none; border: none; text-align: left;
+  color: var(--text-hi); font-family: var(--font-body); font-size: 13px; font-weight: 500;
+  padding: 9px 10px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.more-menu-item svg { width: 15px; height: 15px; color: var(--text-mid); flex-shrink: 0; }
+.more-menu-item:hover { background: var(--bg-2); }
 
 .conn-form-fields { display: flex; flex-direction: column; gap: 10px; }
 .conn-form-fields .field > span { color: var(--text-low); }
